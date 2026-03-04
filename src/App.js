@@ -1,25 +1,1171 @@
-import logo from './logo.svg';
-import './App.css';
+import { useState, useEffect, useRef } from "react";
 
-function App() {
+// ── CONSTANTS ─────────────────────────────────────────────────────────────────
+const ADMIN_PW = "844844";
+const BASE_URL = "https://www.daikenshop.com/allgoods.php";
+const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
+const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
+
+const PRODUCT_URLS = {
+  "倍力他命BELINAMIN膜衣錠": BASE_URL,
+  "納豆紅麴Q10膠囊": BASE_URL,
+  "德國頂級魚油": BASE_URL,
+  "德國頂級魚油(旗艦加大120粒)": BASE_URL,
+  "視易適葉黃素": BASE_URL,
+  "精氣神瑪卡粉包": BASE_URL,
+  "精氣神瑪卡粉包(超值加大30包)": BASE_URL,
+  "100%黑瑪卡透納葉錠": BASE_URL,
+  "好攝力南瓜籽黑麥花膠囊": BASE_URL,
+  "台灣極品靈芝多醣體膠囊": BASE_URL,
+};
+
+const D = "https://www.daikenshop.com/product.php?code=";
+const INIT_CATS = [
+  { key:"fish", label:"🐟 魚油系列", products:[
+    {id:"p1", name:"德國頂級魚油",                    price:700,  outOfStock:false, url:D+"4710255450036"},
+    {id:"p2", name:"德國頂級魚油(旗艦加大120粒)",      price:1450, outOfStock:false, url:D+"4710255450487"},
+    {id:"p3", name:"🇩🇪 兒童DHA 80% 魚油軟膠囊",     price:450,  outOfStock:false, url:D+"4710255450364"},
+    {id:"p4", name:"EPA 1200 頂級魚油軟膠囊",          price:820,  outOfStock:false, url:D+"4710255450920"},
+    {id:"p5", name:"🇩🇪 德國頂級魚油軟膠囊EX",        price:1008, outOfStock:false, url:D+"4710255450845"},
+  ]},
+  { key:"vitamin", label:"💊 維生素礦物質", products:[
+    {id:"p6",  name:"倍力他命BELINAMIN膜衣錠",         price:475,  outOfStock:false, url:D+"4710255450722"},
+    {id:"p7",  name:"德國高劑量維生素C＋鋅發泡錠",     price:130,  outOfStock:false, url:D+"4710255450814"},
+    {id:"p8",  name:"維他命C緩釋膜衣錠",               price:240,  outOfStock:false, url:D+"4710255450067"},
+    {id:"p9",  name:"西印度櫻桃維生素C膠囊",           price:240,  outOfStock:false, url:D+"4710255451088"},
+    {id:"p10", name:"綜合維他命緩釋膜衣錠",            price:240,  outOfStock:false, url:D+"4710255450074"},
+    {id:"p11", name:"綜合鈣+D3 粉包",                  price:390,  outOfStock:false, url:D+"4710255450173"},
+    {id:"p12", name:"海藻鈣海洋精華膠囊",              price:390,  outOfStock:false, url:D+"4710255451095"},
+    {id:"p13", name:"男性B群+鋅雙層錠",                price:240,  outOfStock:false, url:D+"4710255450043"},
+    {id:"p14", name:"女性B群緩釋雙層錠",               price:240,  outOfStock:false, url:D+"4710255450050"},
+    {id:"p15", name:"B群緩釋雙層錠",                   price:240,  outOfStock:false, url:D+"4710255450333"},
+    {id:"p16", name:"維生素D3膠囊",                    price:300,  outOfStock:false, url:D+"4710255450456"},
+  ]},
+  { key:"cardio", label:"❤️ 心血管代謝", products:[
+    {id:"p17", name:"納豆紅麴Q10膠囊",                 price:800,  outOfStock:false, url:D+"4710255450265"},
+    {id:"p18", name:"台灣極品納豆膠囊",                price:450,  outOfStock:false, url:D+"4710255450951"},
+    {id:"p19", name:"德國專利苦瓜胜肽膠囊",            price:820,  outOfStock:false, url:D+"4710255450647"},
+    {id:"p20", name:"德國專利苦瓜胜肽膠囊EX",          price:1188, outOfStock:false, url:D+"4710255450869"},
+    {id:"p21", name:"超燃藤黃果乳酸菌錠",              price:800,  outOfStock:false, url:D+"4710255451231"},
+    {id:"p22", name:"超級1000薑黃錠",                  price:800,  outOfStock:false, url:D+"4710255451125"},
+    {id:"p23", name:"薑黃朝鮮薊膠囊",                  price:800,  outOfStock:false, url:D+"4710255451064"},
+  ]},
+  { key:"eye", label:"👁 眼睛腦力", products:[
+    {id:"p24", name:"視易適葉黃素",                    price:700,  outOfStock:false, url:D+"0000000000028"},
+    {id:"p25", name:"視易適葉黃素軟膠囊EX",            price:900,  outOfStock:false, url:D+"4710255450852"},
+    {id:"p26", name:"好記易PS銀杏薄荷葉膠囊",          price:1190, outOfStock:false, url:D+"4710255450777"},
+  ]},
+  { key:"gut", label:"🦠 腸道消化", products:[
+    {id:"p27", name:"高膳食纖維粉包",                  price:250,  outOfStock:false, url:D+"4710255450616"},
+    {id:"p28", name:"冒易舒接骨木莓粉包",              price:310,  outOfStock:false, url:D+"4710255450272"},
+    {id:"p29", name:"順暢酵素益生菌粉包(30包入)",      price:730,  outOfStock:false, url:D+"4710255450524"},
+    {id:"p30", name:"淨密樂甘露糖蔓越莓益生菌",        price:390,  outOfStock:false, url:D+"4710255450319"},
+    {id:"p31", name:"健好衛高麗菜精乳酸菌粉包",        price:730,  outOfStock:false, url:D+"4710255450371"},
+    {id:"p32", name:"化晶解風鰹魚酸櫻桃膠囊",          price:800,  outOfStock:false, url:D+"4710255451170"},
+  ]},
+  { key:"vitality", label:"⚡ 活力滋補", products:[
+    {id:"p33", name:"精氣神瑪卡粉包",                  price:649,  outOfStock:false, url:D+"4710255450302"},
+    {id:"p34", name:"精氣神瑪卡粉包(超值加大30包)",    price:790,  outOfStock:false, url:D+"4710255450500"},
+    {id:"p35", name:"精氣神瑪卡粉包EX",                price:900,  outOfStock:false, url:D+"4710255450883"},
+    {id:"p36", name:"100%黑瑪卡透納葉錠",              price:700,  outOfStock:false, url:D+"4710255450753"},
+    {id:"p37", name:"好攝力南瓜籽黑麥花膠囊",          price:800,  outOfStock:false, url:D+"4710255450654"},
+    {id:"p38", name:"台灣極品靈芝多醣體膠囊",          price:800,  outOfStock:false, url:D+"4710255450289"},
+  ]},
+  { key:"beauty", label:"✨ 美容保養", products:[
+    {id:"p39", name:"超美研膠原蛋白飲",                price:450,  outOfStock:false, url:D+"4710255450821"},
+    {id:"p40", name:"輕美研膠原蛋白粉",                price:420,  outOfStock:false, url:D+"4710255450890"},
+    {id:"p41", name:"外泌體保濕修護精華",              price:730,  outOfStock:false, url:D+"4710255451132"},
+    {id:"p42", name:"黑棗補鐵精華飲",                  price:450,  outOfStock:false, url:D+"4710255451101"},
+  ]},
+  { key:"joint", label:"🦴 關節骨骼", products:[
+    {id:"p43", name:"動易動非變性二型膠原蛋白",        price:1290, outOfStock:false, url:D+"0000000000117"},
+  ]},
+  { key:"sleep", label:"😴 睡眠", products:[
+    {id:"p44", name:"好睡眠芝麻素膠囊",                price:790,  outOfStock:false, url:D+"4710255450593"},
+  ]},
+];
+
+// Flatten
+function flatProducts(cats) {
+  const m = {};
+  cats.forEach(c => c.products.forEach(p => { m[p.id] = { ...p, category: c.key }; }));
+  return m;
+}
+
+// ── STORAGE ───────────────────────────────────────────────────────────────────
+async function load(key) {
+  try { const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
+  catch { return null; }
+}
+async function save(key, val) {
+  try { await window.storage.set(key, JSON.stringify(val), true); } catch {}
+}
+
+// ── EMAIL TEMPLATES ───────────────────────────────────────────────────────────
+function genConfirmEmail(order, cats) {
+  const fp = flatProducts(cats);
+  const items = Object.entries(order.cart).filter(([,q])=>q>0);
+  const lines = items.map(([id,q]) => {
+    const p = fp[id]; if (!p) return "";
+    return `產品名稱：${p.name}\n數量：${q}\n單價：NT$${p.price.toLocaleString()}\n小計：NT$${(p.price*q).toLocaleString()}`;
+  }).join("\n\n");
+  return `${order.ordererName} 您好，感謝您的訂購！以下是您的訂單確認：
+
+------------------------------------------------------------
+${lines}
+------------------------------------------------------------
+訂單總金額：NT$${order.total.toLocaleString()}
+------------------------------------------------------------
+收件人：${order.recipientName}
+地址：${order.recipientAddress}
+電話：${order.recipientPhone}
+------------------------------------------------------------
+
+我們將於月底結單後與您聯繫確認付款。如需修改訂單，請至訂購頁面以此 email 登入修改。
+
+感謝您對大研生醫的支持，祝福您與家人身體健康！`;
+}
+
+function genPaymentEmail(order, bank, cats) {
+  const fp = flatProducts(cats);
+  const items = Object.entries(order.cart).filter(([,q])=>q>0);
+  const lines = items.map(([id,q]) => {
+    const p = fp[id]; if (!p) return "";
+    return `產品名稱：${p.name}\n數量：${q}\n金額：${p.price.toLocaleString()}\n總計：${(p.price*q).toLocaleString()}`;
+  }).join("\n\n");
+  return `${order.ordererName} 學長/姐您好，以下是您的訂單詳細資訊：
+
+------------------------------------------------------------
+${lines}
+------------------------------------------------------------
+總金額：${order.total.toLocaleString()}
+------------------------------------------------------------
+收件人：${order.recipientName}
+地址：${order.recipientAddress}
+電話：${order.recipientPhone}
+------------------------------------------------------------
+
+再麻煩學長姐匯款至以下帳戶，並麻煩回覆您匯款帳號的後五碼。
+
+銀行：${bank.bankName}(${bank.bankCode})
+帳號：${bank.account}
+
+感謝您對大研生醫的支持，祝福您與家人身體健康！`;
+}
+
+// ── DESIGN TOKENS ─────────────────────────────────────────────────────────────
+const C = {
+  green:"#2d6a4f", gl:"#40916c", gp:"#d8f3dc", gold:"#b7791f",
+  cream:"#faf7f2", text:"#1a1a1a", muted:"#6b7280", border:"#e5e0d8",
+  red:"#c0392b", white:"#fff",
+};
+const globalCSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700&family=Noto+Sans+TC:wght@300;400;500;600&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans TC',sans-serif;background:${C.cream};color:${C.text}}
+  input,select,textarea,button{font-family:'Noto Sans TC',sans-serif}
+  .serif{font-family:'Noto Serif TC',serif}
+  input[type=number]{-moz-appearance:textfield}
+  input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
+  ::-webkit-scrollbar{width:4px}
+  ::-webkit-scrollbar-thumb{background:${C.gp};border-radius:2px}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pop{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:scale(1)}}
+  .fu{animation:fadeUp .3s ease}
+  .pop{animation:pop .25s cubic-bezier(.34,1.56,.64,1)}
+  a{color:${C.gl};text-decoration:none}
+  a:hover{text-decoration:underline}
+`;
+
+// ── UI ATOMS ──────────────────────────────────────────────────────────────────
+const Btn = ({onClick,children,color=C.green,outline,small,disabled,full,style={}})=>(
+  <button onClick={onClick} disabled={disabled} style={{
+    background:outline?"transparent":disabled?"#aaa":color,
+    color:outline?color:C.white,
+    border:`1.5px solid ${disabled?"#aaa":color}`,
+    borderRadius:9,padding:small?"6px 12px":"10px 18px",
+    fontSize:small?"0.78rem":"0.87rem",fontWeight:600,cursor:disabled?"not-allowed":"pointer",
+    width:full?"100%":"auto",transition:"all .15s",...style,
+  }}>{children}</button>
+);
+
+const Field = ({label,required,children,error})=>(
+  <div style={{marginBottom:13}}>
+    <label style={{display:"block",fontSize:"0.77rem",color:C.muted,marginBottom:4,fontWeight:500}}>
+      {label}{required&&<span style={{color:C.red}}> *</span>}
+    </label>
+    {children}
+    {error&&<div style={{color:C.red,fontSize:"0.73rem",marginTop:3}}>{error}</div>}
+  </div>
+);
+
+const inp = (extra={})=>({
+  width:"100%",border:`1.5px solid ${C.border}`,borderRadius:8,
+  padding:"8px 11px",fontSize:"0.86rem",background:C.cream,outline:"none",...extra,
+});
+
+const TextInput = ({value,onChange,placeholder,type="text",onFocus,onBlur})=>(
+  <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    style={inp()} onFocus={e=>{e.target.style.borderColor=C.green;onFocus&&onFocus(e)}}
+    onBlur={e=>{e.target.style.borderColor=C.border;onBlur&&onBlur(e)}} />
+);
+
+const SelInput = ({value,onChange,options})=>(
+  <select value={value} onChange={e=>onChange(e.target.value)} style={inp()}>
+    <option value="">請選擇</option>
+    {options.map(o=><option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}
+  </select>
+);
+
+const TextArea = ({value,onChange,rows=3,placeholder})=>(
+  <textarea value={value} onChange={e=>onChange(e.target.value)} rows={rows} placeholder={placeholder}
+    style={{...inp(),resize:"vertical"}} />
+);
+
+// Email Modal
+function EmailModal({title,content,onClose}) {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div className="pop" style={{background:C.white,borderRadius:18,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"auto",boxShadow:"0 8px 40px rgba(0,0,0,.15)"}}>
+        <div style={{background:C.green,color:C.white,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"18px 18px 0 0"}}>
+          <span className="serif" style={{fontWeight:700}}>{title}</span>
+          <button onClick={onClose} style={{background:"none",border:"none",color:C.white,cursor:"pointer",fontSize:"1.2rem"}}>✕</button>
+        </div>
+        <div style={{padding:20}}>
+          <p style={{fontSize:"0.8rem",color:C.muted,marginBottom:10,lineHeight:1.7}}>
+            點擊下方文字區域可快速全選，複製後手動發送給訂購者。
+          </p>
+          <textarea readOnly value={content} rows={16}
+            onFocus={e=>e.target.select()}
+            style={{width:"100%",border:`1.5px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:"0.8rem",fontFamily:"monospace",background:"#f8f8f5",resize:"vertical",outline:"none",lineHeight:1.8}}
+          />
+          <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center"}}>
+            <Btn onClick={onClose} outline color={C.muted} small>關閉</Btn>
+            <span style={{fontSize:"0.73rem",color:C.muted}}>或整合 EmailJS 可自動寄出</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-export default App;
+// Confirm Modal
+function ConfirmModal({msg,onOk,onCancel}) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div className="pop" style={{background:C.white,borderRadius:16,padding:28,maxWidth:380,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:"0.92rem",lineHeight:1.8,marginBottom:20}}>{msg}</div>
+        <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+          <Btn onClick={onOk} color={C.red}>確認</Btn>
+          <Btn onClick={onCancel} outline color={C.muted}>取消</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── SHOP VIEW ─────────────────────────────────────────────────────────────────
+function ShopView({settings,cats,onOrderSuccess}) {
+  const [tab,setTab]=useState("all");
+  const [cart,setCart]=useState({});
+  const [form,setForm]=useState({ordererName:"",email:"",lineId:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:"",note:""});
+  const [submitting,setSubmitting]=useState(false);
+  const [errors,setErrors]=useState({});
+
+  const fp = flatProducts(cats);
+  const cartItems = Object.entries(cart).filter(([,q])=>q>0);
+  const total = cartItems.reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0);
+
+  const setQ=(id,q)=>setCart(p=>({...p,[id]:Math.max(0,Math.min(99,q))}));
+  const setF=(k,v)=>setForm(p=>({...p,[k]:v}));
+
+  const validate=()=>{
+    const e={};
+    if(!form.ordererName) e.ordererName="必填";
+    if(!form.email||!/\S+@\S+\.\S+/.test(form.email)) e.email="請填寫有效 email";
+    if(!form.phone) e.phone="必填";
+    if(!form.relation) e.relation="必填";
+    if(!form.recipientName) e.recipientName="必填";
+    if(!form.recipientAddress) e.recipientAddress="必填";
+    if(!form.recipientPhone) e.recipientPhone="必填";
+    if(cartItems.length===0) e.cart="請至少選擇一項商品";
+    setErrors(e);
+    return Object.keys(e).length===0;
+  };
+
+  const submit=async()=>{
+    if(!validate()) return;
+    setSubmitting(true);
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const existing = await load(key)||{};
+    const order = {
+      ...form, cart, total,
+      status:"pending",
+      createdAt:new Date().toLocaleString("zh-TW"),
+      updatedAt:null,
+    };
+    existing[form.email.toLowerCase()] = order;
+    await save(key, existing);
+    // Update customer DB
+    const custs = await load("customers")||{};
+    const ek = form.email.toLowerCase();
+    custs[ek] = {
+      name:form.ordererName, email:ek, phone:form.phone,
+      lineId:form.lineId, relation:form.relation,
+      lastOrder:`${settings.year}/${settings.month}`,
+      orderCount:(custs[ek]?.orderCount||0)+1,
+    };
+    await save("customers",custs);
+    setSubmitting(false);
+    const emailContent = genConfirmEmail(order,cats);
+    onOrderSuccess(order, emailContent);
+    setCart({});
+    setForm({ordererName:"",email:"",lineId:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:"",note:""});
+  };
+
+  const shown = tab==="all" ? cats : cats.filter(c=>c.key===tab);
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:24,alignItems:"start"}}>
+      {/* Products */}
+      <div>
+        {errors.cart&&<div style={{background:"#fff5f5",border:`1px solid ${C.red}`,borderRadius:8,padding:"8px 14px",fontSize:"0.82rem",color:C.red,marginBottom:14}}>{errors.cart}</div>}
+        {/* Tabs */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:18}}>
+          {[{key:"all",label:"全部"}, ...cats.map(c=>({key:c.key,label:c.label}))].map(t=>(
+            <button key={t.key} onClick={()=>setTab(t.key)} style={{
+              background:tab===t.key?C.green:C.white,color:tab===t.key?C.white:C.muted,
+              border:`1.5px solid ${tab===t.key?C.green:C.border}`,borderRadius:20,
+              padding:"5px 12px",fontSize:"0.78rem",cursor:"pointer",transition:"all .15s",
+            }}>{t.label}</button>
+          ))}
+        </div>
+        {shown.map(cat=>(
+          <div key={cat.key} style={{marginBottom:26}}>
+            <div className="serif" style={{fontSize:"0.93rem",fontWeight:600,color:C.green,marginBottom:10,paddingBottom:7,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(195px,1fr))",gap:10}}>
+              {cat.products.map(p=>{
+                const q=cart[p.id]||0;
+                return (
+                  <div key={p.id} style={{background:p.outOfStock?"#f5f5f5":q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:12,padding:13,opacity:p.outOfStock?.6:1,transition:"all .15s"}}>
+                    <a href={p.url||BASE_URL} target="_blank" rel="noreferrer" style={{fontSize:"0.83rem",fontWeight:500,lineHeight:1.4,display:"block",minHeight:"2.2em",color:C.text,textDecoration:"none"}}
+                      onMouseEnter={e=>e.currentTarget.style.color=C.gl} onMouseLeave={e=>e.currentTarget.style.color=C.text}>
+                      {p.name} 🔗
+                    </a>
+                    <div className="serif" style={{fontSize:"1rem",fontWeight:700,color:C.green,margin:"6px 0"}}>NT${p.price.toLocaleString()}</div>
+                    {p.outOfStock
+                      ? <div style={{background:"#eee",color:C.muted,borderRadius:7,padding:"6px 0",textAlign:"center",fontSize:"0.8rem"}}>暫時缺貨</div>
+                      : <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden"}}>
+                          <button onClick={()=>setQ(p.id,q-1)} style={{width:30,height:30,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:"1rem"}}>−</button>
+                          <input type="number" value={q} onChange={e=>setQ(p.id,parseInt(e.target.value)||0)} style={{flex:1,border:"none",textAlign:"center",fontSize:"0.88rem",fontWeight:600,background:C.white,outline:"none"}} />
+                          <button onClick={()=>setQ(p.id,q+1)} style={{width:30,height:30,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:"1rem"}}>＋</button>
+                        </div>
+                    }
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sidebar: Cart + Form */}
+      <div style={{position:"sticky",top:72,display:"flex",flexDirection:"column",gap:14}}>
+        {/* Cart */}
+        <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
+          <div style={{background:C.green,color:C.white,padding:"13px 17px",fontWeight:600,fontSize:"0.93rem"}}>
+            🛒 購物車 {cartItems.length>0&&<span style={{background:"rgba(255,255,255,.2)",borderRadius:9,padding:"2px 8px",fontSize:"0.75rem",marginLeft:6}}>{cartItems.length} 種</span>}
+          </div>
+          <div style={{padding:"10px 16px",maxHeight:220,overflowY:"auto"}}>
+            {cartItems.length===0
+              ? <div style={{textAlign:"center",color:C.muted,fontSize:"0.82rem",padding:"18px 0",lineHeight:2}}>尚未加入商品</div>
+              : cartItems.map(([id,q])=>{const p=fp[id];return p&&(
+                  <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`,gap:8,fontSize:"0.8rem"}}>
+                    <span style={{flex:1,lineHeight:1.4}}>{p.name}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:3}}>
+                      <button onClick={()=>setQ(id,q-1)} style={{width:20,height:20,border:`1px solid ${C.border}`,borderRadius:4,background:C.cream,cursor:"pointer",color:C.green,fontWeight:700,fontSize:"0.85rem"}}>−</button>
+                      <span style={{minWidth:18,textAlign:"center",fontWeight:600}}>{q}</span>
+                      <button onClick={()=>setQ(id,q+1)} style={{width:20,height:20,border:`1px solid ${C.border}`,borderRadius:4,background:C.cream,cursor:"pointer",color:C.green,fontWeight:700,fontSize:"0.85rem"}}>＋</button>
+                    </div>
+                    <span style={{fontWeight:600,color:C.green,whiteSpace:"nowrap"}}>NT${(p.price*q).toLocaleString()}</span>
+                  </div>
+                );})
+            }
+          </div>
+          <div style={{padding:"11px 17px",background:C.cream,borderTop:`2px solid ${C.gp}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:"0.83rem",color:C.muted}}>合計</span>
+            <span className="serif" style={{fontSize:"1.35rem",fontWeight:700,color:C.green}}>NT${total.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Order Form */}
+        <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
+          <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,marginBottom:14,color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📋 訂購人資訊</div>
+          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>setF("ordererName",v)} placeholder="姓名" /></Field>
+          <Field label="Email" required error={errors.email}><TextInput value={form.email} onChange={v=>setF("email",v)} type="email" placeholder="用於查詢/修改訂單" /></Field>
+          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v=>setF("phone",v)} type="tel" placeholder="0912-345-678" /></Field>
+          <Field label="LINE ID"><TextInput value={form.lineId} onChange={v=>setF("lineId",v)} placeholder="選填" /></Field>
+          <Field label="與我的關係" required error={errors.relation}>
+            <SelInput value={form.relation} onChange={v=>setF("relation",v)} options={["EMBA師長","EMBA同學","好友","其他"]} />
+          </Field>
+          <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,margin:"14px 0 10px",color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📦 收件人資訊</div>
+          <Field label="收件人姓名" required error={errors.recipientName}><TextInput value={form.recipientName} onChange={v=>setF("recipientName",v)} placeholder="收件人姓名" /></Field>
+          <Field label="收件地址" required error={errors.recipientAddress}><TextInput value={form.recipientAddress} onChange={v=>setF("recipientAddress",v)} placeholder="縣市 + 詳細地址" /></Field>
+          <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v=>setF("recipientPhone",v)} type="tel" placeholder="0912-345-678" /></Field>
+          <Field label="備註"><TextArea value={form.note} onChange={v=>setF("note",v)} placeholder="其他需求…" rows={2}/></Field>
+          <Btn onClick={submit} disabled={submitting} full color={C.green} style={{marginTop:4,padding:"13px"}}>
+            {submitting?"處理中…":"送出訂單 ✉️"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MY ORDER VIEW ─────────────────────────────────────────────────────────────
+function MyOrderView({settings,cats}) {
+  const [email,setEmail]=useState("");
+  const [order,setOrder]=useState(null);
+  const [notFound,setNotFound]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [editMode,setEditMode]=useState(false);
+  const [cart,setCart]=useState({});
+  const [form,setForm]=useState({});
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+  const fp=flatProducts(cats);
+
+  const lookup=async()=>{
+    if(!email.trim()){return;}
+    setLoading(true);setNotFound(false);setOrder(null);setSaved(false);
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const orders=await load(key)||{};
+    const found=orders[email.toLowerCase().trim()];
+    setLoading(false);
+    if(found){setOrder(found);}else{setNotFound(true);}
+  };
+
+  const startEdit=()=>{
+    setCart({...order.cart});
+    setForm({ordererName:order.ordererName,email:order.email,lineId:order.lineId||"",phone:order.phone,relation:order.relation,recipientName:order.recipientName,recipientAddress:order.recipientAddress,recipientPhone:order.recipientPhone,note:order.note||""});
+    setEditMode(true);setSaved(false);
+  };
+
+  const handleSave=async()=>{
+    if(!Object.values(cart).some(q=>q>0)){alert("購物車是空的！");return;}
+    setSaving(true);
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const orders=await load(key)||{};
+    const updated={...orders[email.toLowerCase()], ...form, cart,
+      total:Object.entries(cart).filter(([,q])=>q>0).reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0),
+      updatedAt:new Date().toLocaleString("zh-TW"),
+    };
+    orders[email.toLowerCase()]=updated;
+    await save(key,orders);
+    setSaving(false);setOrder(updated);setEditMode(false);setSaved(true);
+  };
+
+  if(editMode) return (
+    <div className="fu">
+      <button onClick={()=>setEditMode(false)} style={{background:"none",border:"none",color:C.green,cursor:"pointer",fontSize:"0.85rem",marginBottom:14}}>← 取消修改</button>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:24,alignItems:"start"}}>
+        {/* mini product grid */}
+        <div>
+          {cats.map(cat=>(
+            <div key={cat.key} style={{marginBottom:22}}>
+              <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,color:C.green,marginBottom:9,paddingBottom:6,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:9}}>
+                {cat.products.filter(p=>!p.outOfStock).map(p=>{
+                  const q=cart[p.id]||0;
+                  return (
+                    <div key={p.id} style={{background:q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:11,padding:12}}>
+                      <div style={{fontSize:"0.82rem",fontWeight:500,lineHeight:1.4,marginBottom:6}}>{p.name}</div>
+                      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,color:C.green,marginBottom:6}}>NT${p.price.toLocaleString()}</div>
+                      <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden"}}>
+                        <button onClick={()=>setCart(prev=>({...prev,[p.id]:Math.max(0,(prev[p.id]||0)-1)}))} style={{width:28,height:28,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>−</button>
+                        <input type="number" value={q} onChange={e=>setCart(prev=>({...prev,[p.id]:Math.max(0,parseInt(e.target.value)||0)}))} style={{flex:1,border:"none",textAlign:"center",fontSize:"0.86rem",fontWeight:600,background:C.white,outline:"none"}} />
+                        <button onClick={()=>setCart(prev=>({...prev,[p.id]:(prev[p.id]||0)+1}))} style={{width:28,height:28,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>＋</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        {/* Edit form */}
+        <div style={{position:"sticky",top:72,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
+          <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,marginBottom:12}}>修改收件資訊</div>
+          <Field label="收件人姓名" required><TextInput value={form.recipientName} onChange={v=>setForm(p=>({...p,recipientName:v}))} /></Field>
+          <Field label="收件地址" required><TextInput value={form.recipientAddress} onChange={v=>setForm(p=>({...p,recipientAddress:v}))} /></Field>
+          <Field label="收件人電話" required><TextInput value={form.recipientPhone} onChange={v=>setForm(p=>({...p,recipientPhone:v}))} /></Field>
+          <Field label="備註"><TextArea value={form.note||""} onChange={v=>setForm(p=>({...p,note:v}))} rows={2}/></Field>
+          <Btn onClick={handleSave} disabled={saving} full>✅ {saving?"儲存中…":"確認更新訂單"}</Btn>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fu" style={{maxWidth:580,margin:"0 auto"}}>
+      <div className="serif" style={{fontSize:"1.15rem",fontWeight:700,marginBottom:18}}>🔍 查詢 / 修改我的訂單</div>
+      <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:14,padding:22,marginBottom:16}}>
+        <p style={{fontSize:"0.85rem",color:C.muted,marginBottom:14,lineHeight:1.8}}>請輸入訂購時使用的 Email，查詢本月訂單。</p>
+        <Field label="Email"><TextInput value={email} onChange={setEmail} type="email" placeholder="your@email.com" /></Field>
+        <Btn onClick={lookup} disabled={loading} full>{loading?"查詢中…":"查詢訂單"}</Btn>
+        {notFound&&<div style={{marginTop:12,background:"#fff5f5",border:`1px solid #feb2b2`,borderRadius:8,padding:"9px 13px",fontSize:"0.82rem",color:C.red}}>查無本月訂單，請確認 Email 是否正確。</div>}
+      </div>
+
+      {order&&(
+        <div className="pop" style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:14,overflow:"hidden"}}>
+          {saved&&<div style={{background:C.gp,color:C.green,padding:"9px 16px",fontSize:"0.82rem",borderBottom:`1px solid ${C.gl}`}}>✅ 訂單已成功更新！</div>}
+          <div style={{background:C.green,color:C.white,padding:"13px 18px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div className="serif" style={{fontWeight:700,fontSize:"0.97rem"}}>{order.ordererName} 的訂單</div>
+              <div style={{fontSize:"0.72rem",opacity:.8,marginTop:2}}>{order.createdAt}{order.updatedAt&&` | 更新：${order.updatedAt}`}</div>
+            </div>
+            <span style={{background:order.status==="handled"?"rgba(183,121,31,.8)":"rgba(255,255,255,.2)",color:C.white,padding:"3px 10px",borderRadius:7,fontSize:"0.73rem"}}>
+              {order.status==="handled"?"✅ 已處理":"⏳ 待處理"}
+            </span>
+          </div>
+          <div style={{padding:"15px 18px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"7px 14px",marginBottom:13,fontSize:"0.82rem"}}>
+              {[["📱",order.phone],["💬 LINE",order.lineId||"—"],["👥",order.relation]].map(([k,v])=>(
+                <div key={k}><span style={{color:C.muted}}>{k}：</span>{v}</div>
+              ))}
+              <div style={{gridColumn:"1/-1"}}><span style={{color:C.muted}}>📍 收件：</span>{order.recipientName}｜{order.recipientPhone}｜{order.recipientAddress}</div>
+              {order.note&&<div style={{gridColumn:"1/-1"}}><span style={{color:C.muted}}>備註：</span>{order.note}</div>}
+            </div>
+            <div style={{borderTop:`1px solid ${C.border}`,paddingTop:11}}>
+              {Object.entries(order.cart).filter(([,q])=>q>0).map(([id,q])=>{const p=fp[id];return p&&(
+                <div key={id} style={{display:"flex",justifyContent:"space-between",fontSize:"0.82rem",padding:"4px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span>{p.name} × {q}</span>
+                  <span style={{fontWeight:600,color:C.green}}>NT${(p.price*q).toLocaleString()}</span>
+                </div>
+              );})}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:9,fontWeight:700,color:C.green}}>
+                <span className="serif">合計</span><span className="serif" style={{fontSize:"1.1rem"}}>NT${order.total.toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+          {order.status!=="handled"&&(
+            <div style={{padding:"11px 18px",borderTop:`1px solid ${C.border}`,background:C.cream}}>
+              <Btn onClick={startEdit} full color={C.gold}>✏️ 修改訂單</Btn>
+            </div>
+          )}
+          {order.status==="handled"&&(
+            <div style={{padding:"10px 18px",background:C.cream,fontSize:"0.78rem",color:C.muted,textAlign:"center",borderTop:`1px solid ${C.border}`}}>此訂單已處理，如需更改請聯絡管理員</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ADMIN VIEW ────────────────────────────────────────────────────────────────
+function AdminView({settings,setSettings,cats,setCats}) {
+  const [authed,setAuthed]=useState(false);
+  const [pw,setPw]=useState("");
+  const [tab,setTab]=useState("orders");
+
+  const login=()=>{if(pw===ADMIN_PW){setAuthed(true);}else{alert("密碼錯誤");}};
+
+  if(!authed) return (
+    <div style={{maxWidth:340,margin:"40px auto"}}>
+      <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:28,boxShadow:"0 4px 20px rgba(0,0,0,.07)"}}>
+        <div className="serif" style={{fontSize:"1.1rem",fontWeight:700,marginBottom:20,textAlign:"center"}}>🔐 管理員登入</div>
+        <Field label="密碼" required><TextInput value={pw} onChange={setPw} type="password" placeholder="請輸入密碼" /></Field>
+        <Btn onClick={login} full>登入</Btn>
+      </div>
+    </div>
+  );
+
+  const tabs=[
+    {k:"orders",l:"📋 本月訂單"},
+    {k:"closeout",l:"🚚 結單送貨"},
+    {k:"history",l:"📚 歷史訂單"},
+    {k:"customers",l:"👥 訂購人資訊"},
+    {k:"bulletin",l:"📢 公布欄"},
+    {k:"products",l:"📦 產品管理"},
+    {k:"emails",l:"✉️ 寄送信件"},
+    {k:"newmonth",l:"🗓 新月份"},
+  ];
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+        <span className="serif" style={{fontSize:"1.1rem",fontWeight:700}}>⚙️ 管理後台</span>
+        <span style={{fontSize:"0.8rem",color:C.muted,background:C.gp,padding:"3px 10px",borderRadius:8}}>
+          {settings.year}年{settings.month}月｜{settings.isOpen?"🟢 訂購中":"🔴 已結單"}
+        </span>
+      </div>
+      {/* Tab nav */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:18,borderBottom:`2px solid ${C.border}`,paddingBottom:12}}>
+        {tabs.map(t=>(
+          <button key={t.k} onClick={()=>setTab(t.k)} style={{
+            background:tab===t.k?C.green:C.white,color:tab===t.k?C.white:C.muted,
+            border:`1.5px solid ${tab===t.k?C.green:C.border}`,borderRadius:9,
+            padding:"6px 13px",fontSize:"0.8rem",cursor:"pointer",transition:"all .15s",
+          }}>{t.l}</button>
+        ))}
+      </div>
+
+      {tab==="bulletin"&&<BulletinTab settings={settings} setSettings={setSettings}/>}
+      {tab==="products"&&<ProductsTab cats={cats} setCats={setCats}/>}
+      {tab==="orders"&&<OrdersTab settings={settings} cats={cats}/>}
+      {tab==="history"&&<HistoryTab cats={cats}/>}
+      {tab==="customers"&&<CustomersTab/>}
+      {tab==="closeout"&&<CloseoutTab settings={settings} setSettings={setSettings} cats={cats}/>}
+      {tab==="emails"&&<EmailsTab settings={settings} cats={cats}/>}
+      {tab==="newmonth"&&<NewMonthTab settings={settings} setSettings={setSettings}/>}
+    </div>
+  );
+}
+
+function BulletinTab({settings,setSettings}) {
+  const [text,setText]=useState(settings.bulletin||DEFAULT_BULLETIN);
+  const [saved,setSaved]=useState(false);
+  const save_=async()=>{
+    const s={...settings,bulletin:text};
+    await save("settings",s);setSettings(s);setSaved(true);setTimeout(()=>setSaved(false),2000);
+  };
+  return (
+    <div style={{maxWidth:560}}>
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>📢 公布欄內容</div>
+      <p style={{fontSize:"0.83rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>此文字會顯示在訂購頁面頂部。</p>
+      <TextArea value={text} onChange={setText} rows={4} />
+      <div style={{marginTop:10,display:"flex",gap:10,alignItems:"center"}}>
+        <Btn onClick={save_}>儲存</Btn>
+        {saved&&<span style={{color:C.gl,fontSize:"0.82rem"}}>✅ 已儲存</span>}
+      </div>
+      <div style={{marginTop:20,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+        <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,marginBottom:12}}>🏦 匯款帳戶資訊</div>
+        {["bankName","bankCode","account"].map(k=>(
+          <Field key={k} label={k==="bankName"?"銀行名稱":k==="bankCode"?"銀行代碼":"帳號"}>
+            <TextInput value={settings.bank?.[k]||DEFAULT_BANK[k]} onChange={v=>{
+              const s={...settings,bank:{...(settings.bank||DEFAULT_BANK),[k]:v}};
+              save("settings",s);setSettings(s);
+            }} />
+          </Field>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProductsTab({cats,setCats}) {
+  const [pasteText,setPasteText]=useState("");
+  const [msg,setMsg]=useState("");
+
+  const toggleOOS=async(catKey,id)=>{
+    const updated=cats.map(c=>c.key===catKey?{...c,products:c.products.map(p=>p.id===id?{...p,outOfStock:!p.outOfStock}:p)}:c);
+    setCats(updated);await save("cats",updated);
+  };
+
+  const importProducts=async()=>{
+    const lines=pasteText.trim().split("\n").map(l=>l.trim()).filter(Boolean);
+    const newProds=[];
+    for(let i=0;i<lines.length;i++){
+      if(lines[i+1]&&lines[i+1].startsWith("NT$")){
+        const price=parseInt(lines[i+1].replace(/[^0-9]/g,""));
+        if(!isNaN(price)){
+          newProds.push({id:`custom_${Date.now()}_${i}`,name:lines[i],price,outOfStock:false,url:BASE_URL});
+          i++;
+        }
+      }
+    }
+    if(newProds.length===0){setMsg("無法解析，請確認格式");return;}
+    const updated=cats.map(c=>c.key==="custom"?{...c,products:[...c.products,...newProds]}:c);
+    const withCustom=updated.some(c=>c.key==="custom")?updated:[...updated,{key:"custom",label:"🆕 匯入商品",products:newProds}];
+    setCats(withCustom);await save("cats",withCustom);
+    setPasteText("");setMsg(`✅ 成功匯入 ${newProds.length} 項商品`);
+  };
+
+  return (
+    <div>
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>📦 產品管理</div>
+      {/* Paste import */}
+      <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:20}}>
+        <div style={{fontSize:"0.87rem",fontWeight:600,marginBottom:8}}>匯入新產品（貼上格式）</div>
+        <p style={{fontSize:"0.78rem",color:C.muted,marginBottom:8,lineHeight:1.7}}>每筆一個名稱＋NT$價格，空行分隔：</p>
+        <pre style={{background:C.cream,borderRadius:7,padding:"8px 12px",fontSize:"0.75rem",color:C.muted,marginBottom:10}}>{"產品名稱\nNT$999\n\n另一個產品\nNT$500"}</pre>
+        <TextArea value={pasteText} onChange={setPasteText} rows={5} placeholder="貼上產品清單…"/>
+        <div style={{marginTop:8,display:"flex",gap:10,alignItems:"center"}}>
+          <Btn onClick={importProducts} small color={C.gl}>匯入</Btn>
+          {msg&&<span style={{fontSize:"0.8rem",color:msg.startsWith("✅")?C.gl:C.red}}>{msg}</span>}
+        </div>
+      </div>
+      {/* Product list */}
+      {cats.map(cat=>(
+        <div key={cat.key} style={{marginBottom:18}}>
+          <div className="serif" style={{fontSize:"0.87rem",fontWeight:600,color:C.green,marginBottom:8}}>{cat.label}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+            {cat.products.map(p=>(
+              <div key={p.id} style={{background:p.outOfStock?"#f0f0f0":C.gp,border:`1.5px solid ${p.outOfStock?C.muted:C.gl}`,borderRadius:9,padding:"7px 12px",display:"flex",alignItems:"center",gap:9}}>
+                <span style={{fontSize:"0.8rem",color:p.outOfStock?C.muted:C.text}}>{p.name} — NT${p.price.toLocaleString()}</span>
+                <button onClick={()=>toggleOOS(cat.key,p.id)} style={{background:p.outOfStock?C.gl:C.red,color:C.white,border:"none",borderRadius:6,padding:"3px 8px",fontSize:"0.72rem",cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {p.outOfStock?"恢復上架":"設為缺貨"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OrdersTab({settings,cats}) {
+  const [orders,setOrders]=useState(null);
+  const fp=flatProducts(cats);
+  useEffect(()=>{
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    load(key).then(o=>setOrders(o||{}));
+  },[settings]);
+  const toggleStatus=async(email)=>{
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const upd={...orders,[email]:{...orders[email],status:orders[email].status==="handled"?"pending":"handled"}};
+    setOrders(upd);await save(key,upd);
+  };
+  if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
+  const list=Object.values(orders).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  const totalAmt=list.filter(o=>o.status!=="handled").reduce((s,o)=>s+o.total,0);
+  return (
+    <div>
+      <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
+        {[["📦 訂單數",list.length,C.green],["⏳ 待處理",list.filter(o=>o.status!=="handled").length,C.gold],["✅ 已處理",list.filter(o=>o.status==="handled").length,C.gl],["💰 待收",`NT$${totalAmt.toLocaleString()}`,C.red]].map(([l,v,c])=>(
+          <div key={l} style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"12px 16px",minWidth:110}}>
+            <div style={{fontSize:"0.75rem",color:C.muted,marginBottom:3}}>{l}</div>
+            <div className="serif" style={{fontSize:"1.2rem",fontWeight:700,color:c}}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {list.length===0?<div style={{color:C.muted,textAlign:"center",padding:32}}>本月尚無訂單</div>
+      :list.map(o=>{
+        const items=Object.entries(o.cart).filter(([,q])=>q>0);
+        return (
+          <div key={o.email} style={{background:C.white,border:`1.5px solid ${o.status==="handled"?C.border:C.green}`,borderRadius:12,marginBottom:10,overflow:"hidden"}}>
+            <div style={{background:o.status==="handled"?C.cream:C.gp,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:7}}>
+              <div>
+                <span className="serif" style={{fontWeight:700}}>{o.ordererName}</span>
+                <span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>{o.email}</span>
+                <span style={{fontSize:"0.75rem",color:C.muted,marginLeft:8}}>{o.relation}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span className="serif" style={{fontWeight:700,color:C.green}}>NT${o.total.toLocaleString()}</span>
+                <button onClick={()=>toggleStatus(o.email)} style={{background:o.status==="handled"?C.gl:C.gold,color:C.white,border:"none",borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:"pointer"}}>
+                  {o.status==="handled"?"↩ 恢復":"✅ 已處理"}
+                </button>
+              </div>
+            </div>
+            <div style={{padding:"9px 14px",display:"flex",flexWrap:"wrap",gap:5}}>
+              {items.map(([id,q])=>{const p=fp[id];return p&&<span key={id} style={{background:C.gp,color:C.green,borderRadius:5,padding:"2px 7px",fontSize:"0.76rem"}}>{p.name}×{q}</span>;})}
+            </div>
+            <div style={{padding:"4px 14px 9px",fontSize:"0.77rem",color:C.muted}}>
+              📍 {o.recipientName}｜{o.recipientPhone}｜{o.recipientAddress}
+              {o.note&&` ｜ 備註: ${o.note}`}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HistoryTab({cats}) {
+  const [history,setHistory]=useState(null);
+  const [expanded,setExpanded]=useState(null);
+  const [monthOrders,setMonthOrders]=useState({});
+  const fp=flatProducts(cats);
+  useEffect(()=>{load("history").then(h=>setHistory(h||[]));}, []);
+
+  const expand=async(month)=>{
+    if(expanded===month){setExpanded(null);return;}
+    setExpanded(month);
+    const orders=await load(`orders_${month}`)||{};
+    setMonthOrders(prev=>({...prev,[month]:orders}));
+  };
+
+  if(!history) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
+  if(history.length===0) return <div style={{color:C.muted,textAlign:"center",padding:32}}>尚無歷史結單紀錄</div>;
+
+  return (
+    <div>
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>📚 歷史訂單</div>
+      {history.sort((a,b)=>b.closedAt.localeCompare(a.closedAt)).map(h=>(
+        <div key={h.key} style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:12,marginBottom:10,overflow:"hidden"}}>
+          <div onClick={()=>expand(h.key)} style={{padding:"12px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",background:C.cream}}>
+            <span className="serif" style={{fontWeight:600}}>{h.year}年{h.month}月｜{h.orderCount}筆訂單｜NT${h.totalAmt.toLocaleString()}</span>
+            <span style={{color:C.muted,fontSize:"0.85rem"}}>{expanded===h.key?"▲":"▼"}</span>
+          </div>
+          {expanded===h.key&&monthOrders[h.key]&&(
+            <div style={{padding:"10px 16px"}}>
+              {Object.values(monthOrders[h.key]).map(o=>(
+                <div key={o.email} style={{borderBottom:`1px solid ${C.border}`,padding:"8px 0",fontSize:"0.82rem"}}>
+                  <span style={{fontWeight:600}}>{o.ordererName}</span>
+                  <span style={{color:C.muted,marginLeft:8}}>{o.email}</span>
+                  <span style={{color:C.green,fontWeight:600,marginLeft:8}}>NT${o.total.toLocaleString()}</span>
+                  <div style={{marginTop:4,display:"flex",flexWrap:"wrap",gap:4}}>
+                    {Object.entries(o.cart).filter(([,q])=>q>0).map(([id,q])=>{const p=fp[id];return p&&<span key={id} style={{background:C.gp,color:C.green,borderRadius:5,padding:"1px 6px",fontSize:"0.73rem"}}>{p.name}×{q}</span>;})}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CustomersTab() {
+  const [customers,setCustomers]=useState(null);
+  const [search,setSearch]=useState("");
+  useEffect(()=>{load("customers").then(c=>setCustomers(c||{}));}, []);
+  if(!customers) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
+  const list=Object.values(customers).filter(c=>!search||(c.name+c.email+c.phone).includes(search));
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700}}>👥 訂購人資料庫</div>
+        <span style={{fontSize:"0.8rem",color:C.muted}}>共 {Object.keys(customers).length} 人</span>
+      </div>
+      <div style={{marginBottom:14}}><TextInput value={search} onChange={setSearch} placeholder="搜尋姓名、email、手機…"/></div>
+      {list.length===0?<div style={{color:C.muted,textAlign:"center",padding:24}}>查無資料</div>
+      :list.sort((a,b)=>a.name.localeCompare(b.name)).map(c=>(
+        <div key={c.email} style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"11px 15px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+          <div>
+            <span className="serif" style={{fontWeight:600,fontSize:"0.93rem"}}>{c.name}</span>
+            <span style={{fontSize:"0.8rem",color:C.muted,marginLeft:8}}>{c.email}</span>
+            <span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>{c.phone}</span>
+            {c.lineId&&<span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>LINE: {c.lineId}</span>}
+          </div>
+          <div style={{fontSize:"0.78rem",color:C.muted,textAlign:"right"}}>
+            <div>{c.relation}｜最近訂購：{c.lastOrder}</div>
+            <div>累計訂購 {c.orderCount} 次</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CloseoutTab({settings,setSettings,cats}) {
+  const [orders,setOrders]=useState(null);
+  const [confirm,setConfirm]=useState(false);
+  const [done,setDone]=useState(false);
+  const fp=flatProducts(cats);
+
+  useEffect(()=>{
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    load(key).then(o=>setOrders(o||{}));
+  },[settings]);
+
+  const doCloseout=async()=>{
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const s={...settings,isOpen:false};
+    await save("settings",s);setSettings(s);
+    // Save history entry
+    const h=await load("history")||[];
+    const monthKey=`${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    if(!h.find(x=>x.key===monthKey)){
+      const list=Object.values(orders||{});
+      h.push({key:monthKey,year:settings.year,month:settings.month,closedAt:new Date().toLocaleString("zh-TW"),orderCount:list.length,totalAmt:list.reduce((s,o)=>s+o.total,0)});
+      await save("history",h);
+    }
+    setConfirm(false);setDone(true);
+  };
+
+  // Generate shipping table TSV
+  const genTSV=()=>{
+    const header="商品名稱\t數量(盒)\t總金額\t收件人姓名\t收件人電話\t收件人住址\t備註\t訂購人姓名";
+    const rows=[];
+    Object.values(orders||{}).forEach(o=>{
+      Object.entries(o.cart).filter(([,q])=>q>0).forEach(([id,q])=>{
+        const p=fp[id];
+        if(p) rows.push([p.name,q,(p.price*q).toLocaleString(),o.recipientName,o.recipientPhone,o.recipientAddress,o.note||"",o.ordererName].join("\t"));
+      });
+    });
+    return header+"\n"+rows.join("\n");
+  };
+
+  const [tsvModal,setTsvModal]=useState(false);
+  const copyTSV=()=>setTsvModal(true);
+
+  if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
+  const list=Object.values(orders);
+
+  return (
+    <div style={{maxWidth:700}}>
+      {confirm&&<ConfirmModal msg={`確定結單 ${settings.year}年${settings.month}月 的團購？結單後訂購者無法修改訂單。`} onOk={doCloseout} onCancel={()=>setConfirm(false)}/>}
+      {tsvModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div className="pop" style={{background:C.white,borderRadius:18,width:"100%",maxWidth:680,maxHeight:"85vh",overflow:"auto",boxShadow:"0 8px 40px rgba(0,0,0,.15)"}}>
+            <div style={{background:C.green,color:C.white,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"18px 18px 0 0"}}>
+              <span className="serif" style={{fontWeight:700}}>📋 結單表內容</span>
+              <button onClick={()=>setTsvModal(false)} style={{background:"none",border:"none",color:C.white,cursor:"pointer",fontSize:"1.2rem"}}>✕</button>
+            </div>
+            <div style={{padding:20}}>
+              <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>
+                請全選下方內容（<kbd style={{background:"#eee",padding:"1px 6px",borderRadius:4}}>Ctrl+A</kbd> 或長按全選），複製後貼入 Google 試算表即可。
+              </p>
+              <textarea readOnly value={genTSV()} rows={14}
+                onFocus={e=>e.target.select()}
+                style={{width:"100%",border:`1.5px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:"0.78rem",fontFamily:"monospace",background:"#f8f8f5",resize:"vertical",outline:"none",lineHeight:1.7}}
+              />
+              <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center"}}>
+                <Btn onClick={()=>setTsvModal(false)} outline color={C.muted} small>關閉</Btn>
+                <span style={{fontSize:"0.75rem",color:C.muted}}>點擊文字區域可快速全選</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>🚚 結單送貨</div>
+      {done&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ 已結單！首頁將顯示「{settings.year}年{settings.month}月的團購已結單」</div>}
+      <div style={{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}}>
+        {settings.isOpen&&<Btn onClick={()=>setConfirm(true)} color={C.red}>🔒 執行結單</Btn>}
+        {!settings.isOpen&&<div style={{background:"#fff5f5",border:`1px solid #feb2b2`,borderRadius:8,padding:"9px 14px",fontSize:"0.82rem",color:C.red}}>本月已結單</div>}
+        <Btn onClick={copyTSV} color={C.gold} outline>📋 複製結單表（貼入 Google Sheets）</Btn>
+      </div>
+      {/* Shipping table preview */}
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",fontSize:"0.78rem",width:"100%",background:C.white,borderRadius:10,overflow:"hidden"}}>
+          <thead>
+            <tr style={{background:C.green,color:C.white}}>
+              {["商品名稱","數量","金額","收件人","電話","地址","備註","訂購人"].map(h=>(
+                <th key={h} style={{padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {list.length===0?<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:C.muted}}>尚無訂單</td></tr>
+            :list.map(o=>Object.entries(o.cart).filter(([,q])=>q>0).map(([id,q])=>{const p=fp[id];return p&&(
+              <tr key={o.email+id} style={{borderBottom:`1px solid ${C.border}`}}>
+                <td style={{padding:"7px 10px"}}>{p.name}</td>
+                <td style={{padding:"7px 10px",textAlign:"center"}}>{q}</td>
+                <td style={{padding:"7px 10px",fontWeight:600,color:C.green}}>NT${(p.price*q).toLocaleString()}</td>
+                <td style={{padding:"7px 10px"}}>{o.recipientName}</td>
+                <td style={{padding:"7px 10px"}}>{o.recipientPhone}</td>
+                <td style={{padding:"7px 10px",maxWidth:180,wordBreak:"break-all"}}>{o.recipientAddress}</td>
+                <td style={{padding:"7px 10px",color:C.muted}}>{o.note||""}</td>
+                <td style={{padding:"7px 10px"}}>{o.ordererName}</td>
+              </tr>
+            );}))
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EmailsTab({settings,cats}) {
+  const [orders,setOrders]=useState(null);
+  const [noticeText,setNoticeText]=useState("");
+  const [emailModal,setEmailModal]=useState(null);
+  const [sendingTo,setSendingTo]=useState("all");
+  const fp=flatProducts(cats);
+  const bank=settings.bank||DEFAULT_BANK;
+
+  useEffect(()=>{
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    load(key).then(o=>setOrders(o||{}));
+  },[settings]);
+
+  const showPaymentEmail=(o)=>{
+    setEmailModal({title:`匯款信件 — ${o.ordererName}`,content:genPaymentEmail(o,bank,cats)});
+  };
+
+  const showNotice=(o)=>{
+    const content=`${o.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
+    setEmailModal({title:`特別通知 — ${o.ordererName}`,content});
+  };
+
+  if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
+  const list=Object.values(orders);
+
+  return (
+    <div>
+      {emailModal&&<EmailModal title={emailModal.title} content={emailModal.content} onClose={()=>setEmailModal(null)}/>}
+      {/* Payment emails */}
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:12}}>💳 寄送匯款信件</div>
+      <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>點擊每筆訂單旁的按鈕，複製信件內容後手動發送。</p>
+      {list.length===0?<div style={{color:C.muted,marginBottom:20}}>本月尚無訂單</div>
+      :list.map(o=>(
+        <div key={o.email} style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:C.white,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"10px 14px",marginBottom:8,gap:10,flexWrap:"wrap"}}>
+          <div>
+            <span className="serif" style={{fontWeight:600}}>{o.ordererName}</span>
+            <span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>{o.email}</span>
+            <span style={{fontSize:"0.78rem",color:C.green,fontWeight:600,marginLeft:8}}>NT${o.total.toLocaleString()}</span>
+          </div>
+          <Btn onClick={()=>showPaymentEmail(o)} small color={C.gold}>📧 查看匯款信</Btn>
+        </div>
+      ))}
+
+      {/* Special notice */}
+      <div style={{marginTop:24,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
+        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:12}}>📣 寄送特別通知</div>
+        <TextArea value={noticeText} onChange={setNoticeText} rows={4} placeholder="輸入通知內容，將自動套用每位訂購者的姓名…"/>
+        <div style={{marginTop:12}}>
+          {list.length===0?<span style={{color:C.muted,fontSize:"0.82rem"}}>本月尚無訂購者</span>
+          :<div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:8}}>
+            {list.map(o=>(
+              <Btn key={o.email} onClick={()=>showNotice(o)} small outline color={C.green}>{o.ordererName}</Btn>
+            ))}
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewMonthTab({settings,setSettings}) {
+  const [year,setYear]=useState(settings.year);
+  const [month,setMonth]=useState(settings.month+1>12?1:settings.month+1);
+  const [confirm,setConfirm]=useState(false);
+  const [done,setDone]=useState(false);
+
+  const start=async()=>{
+    const s={...settings,year,month,isOpen:true};
+    await save("settings",s);setSettings(s);setConfirm(false);setDone(true);
+  };
+
+  return (
+    <div style={{maxWidth:440}}>
+      {confirm&&<ConfirmModal msg={`開始 ${year}年${month}月 的團購？`} onOk={start} onCancel={()=>setConfirm(false)}/>}
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>🗓 開始新月份團購</div>
+      {done&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ 已開始 {year}年{month}月的團購！</div>}
+      <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:14,padding:20}}>
+        <p style={{fontSize:"0.83rem",color:C.muted,marginBottom:16,lineHeight:1.7}}>
+          目前是 <strong>{settings.year}年{settings.month}月</strong>｜{settings.isOpen?"訂購中":"已結單"}<br/>
+          按下開始後，首頁將切換至新月份。歷史訂單仍可在「歷史訂單」查閱。
+        </p>
+        <div style={{display:"flex",gap:12,marginBottom:16}}>
+          <div style={{flex:1}}>
+            <Field label="年份">
+              <TextInput value={String(year)} onChange={v=>setYear(parseInt(v)||year)} type="number"/>
+            </Field>
+          </div>
+          <div style={{flex:1}}>
+            <Field label="月份">
+              <SelInput value={String(month)} onChange={v=>setMonth(parseInt(v))} options={Array.from({length:12},(_,i)=>({v:String(i+1),l:`${i+1}月`}))}/>
+            </Field>
+          </div>
+        </div>
+        <Btn onClick={()=>setConfirm(true)} full color={C.green}>🚀 開始 {year}年{month}月的團購</Btn>
+      </div>
+    </div>
+  );
+}
+
+// ── APP ROOT ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [view,setView]=useState("shop");
+  const [settings,setSettings]=useState(null);
+  const [cats,setCats]=useState(INIT_CATS);
+  const [successModal,setSuccessModal]=useState(null);
+  const [emailModal,setEmailModal]=useState(null);
+
+  useEffect(()=>{
+    (async()=>{
+      let s=await load("settings");
+      if(!s){
+        const now=new Date();
+        s={year:now.getFullYear(),month:now.getMonth()+1,isOpen:true,bulletin:DEFAULT_BULLETIN,bank:DEFAULT_BANK};
+        await save("settings",s);
+      }
+      setSettings(s);
+      const savedCats=await load("cats");
+      if(savedCats){
+        // Merge correct URLs from INIT_CATS into saved cats (in case old storage has no url)
+        const initMap={};
+        INIT_CATS.forEach(c=>c.products.forEach(p=>{initMap[p.id]=p.url;}));
+        const merged=savedCats.map(c=>({...c,products:c.products.map(p=>({...p,url:initMap[p.id]||p.url}))}));
+        setCats(merged);
+        await save("cats",merged);
+      }
+    })();
+  },[]);
+
+  const handleOrderSuccess=(order,emailContent)=>{
+    setSuccessModal(order);
+    setEmailModal({title:"📧 訂購確認信（請複製後發給訂購者）",content:emailContent});
+  };
+
+  if(!settings) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>載入中…</div>;
+
+  const isOpen=settings.isOpen;
+  const monthLabel=`${settings.year}年${settings.month}月`;
+
+  return (
+    <>
+      <style>{globalCSS}</style>
+      {emailModal&&<EmailModal title={emailModal.title} content={emailModal.content} onClose={()=>setEmailModal(null)}/>}
+      {/* Success toast */}
+      {successModal&&!emailModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div className="pop" style={{background:C.white,borderRadius:18,padding:30,maxWidth:420,width:"100%",textAlign:"center"}}>
+            <div style={{fontSize:"2.8rem",marginBottom:10}}>🎉</div>
+            <div className="serif" style={{fontSize:"1.2rem",fontWeight:700,color:C.green,marginBottom:10}}>訂單已送出！</div>
+            <div style={{fontSize:"0.85rem",color:C.muted,lineHeight:2,marginBottom:18}}>
+              <strong style={{color:C.text}}>{successModal.ordererName}</strong> 感謝訂購！<br/>
+              合計 <strong style={{color:C.green}}>NT${successModal.total.toLocaleString()}</strong><br/>
+              確認信將寄至 <strong>{successModal.email}</strong>
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+              <Btn onClick={()=>{setSuccessModal(null);setEmailModal({title:"📧 訂購確認信",content:genConfirmEmail(successModal,cats)});}} color={C.gl}>查看確認信內容</Btn>
+              <Btn onClick={()=>setSuccessModal(null)} outline color={C.muted}>關閉</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{minHeight:"100vh",background:C.cream}}>
+        {/* Header */}
+        <div style={{background:C.green,color:C.white,position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,.18)"}}>
+          <div style={{maxWidth:1200,margin:"0 auto",padding:"13px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+            <div onClick={()=>setView("shop")} style={{cursor:"pointer"}}>
+              <div className="serif" style={{fontSize:"1.1rem",fontWeight:700,letterSpacing:".04em"}}>🌿 大研生醫 × 團購專區</div>
+              <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>EMBA · 師長 · 好友 專屬</div>
+            </div>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+              {[["shop","🛒 訂購"],["myorder","🔍 查詢訂單"],["admin","⚙️ 後台"]].map(([v,l])=>(
+                <button key={v} onClick={()=>setView(v)} style={{
+                  background:view===v?"rgba(255,255,255,.25)":"rgba(255,255,255,.12)",
+                  color:C.white,border:`1px solid rgba(255,255,255,${view===v?.4:.2})`,
+                  borderRadius:8,padding:"7px 13px",fontSize:"0.8rem",cursor:"pointer",
+                  fontFamily:"'Noto Sans TC',sans-serif",fontWeight:view===v?600:400,
+                }}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Notice bar */}
+        {view==="shop"&&(
+          <div style={{background:isOpen?"linear-gradient(135deg,#1b4332,#2d6a4f)":"linear-gradient(135deg,#7b341e,#c05621)",color:C.white,padding:"11px 20px",textAlign:"center",fontSize:"0.82rem",lineHeight:1.8}}>
+            <strong style={{fontSize:"0.95rem",marginRight:10}}>{monthLabel}的團購</strong>
+            {isOpen?<span style={{opacity:.9}}>{settings.bulletin||DEFAULT_BULLETIN}</span>
+            :<span style={{opacity:.9}}>⚠️ {monthLabel}的團購已結單，歡迎期待下一期！</span>}
+          </div>
+        )}
+
+        <div style={{maxWidth:1200,margin:"0 auto",padding:"22px 16px"}}>
+          {view==="shop"&&(
+            isOpen
+              ? <ShopView settings={settings} cats={cats} onOrderSuccess={handleOrderSuccess}/>
+              : <div style={{textAlign:"center",padding:"60px 20px"}}>
+                  <div style={{fontSize:"3rem",marginBottom:12}}>📦</div>
+                  <div className="serif" style={{fontSize:"1.3rem",fontWeight:700,marginBottom:8}}>{monthLabel}的團購已結單</div>
+                  <div style={{color:C.muted,fontSize:"0.88rem",marginBottom:20}}>歡迎期待下一期，如有問題請聯絡管理員。</div>
+                  <Btn onClick={()=>setView("myorder")} outline color={C.green}>查詢我的訂單</Btn>
+                </div>
+          )}
+          {view==="myorder"&&<MyOrderView settings={settings} cats={cats}/>}
+          {view==="admin"&&<AdminView settings={settings} setSettings={setSettings} cats={cats} setCats={setCats}/>}
+        </div>
+      </div>
+    </>
+  );
+}
