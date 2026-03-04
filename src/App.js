@@ -10,11 +10,15 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcek
 // ── EMAIL SENDER ──────────────────────────────────────────────────────────────
 async function sendEmail({ to, subject, body }) {
   try {
-    const res = await fetch(GAS_URL, {
+    // Use URLSearchParams so no-cors fetch works with GAS
+    const params = new URLSearchParams();
+    params.append("to", to);
+    params.append("subject", subject);
+    params.append("body", body);
+    await fetch(GAS_URL, {
       method: "POST",
       mode: "no-cors",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "send", to, subject, body }),
+      body: params,
     });
     return true;
   } catch (e) {
@@ -313,37 +317,43 @@ function ShopView({settings,cats,onOrderSuccess}) {
   const submit=async()=>{
     if(!validate()) return;
     setSubmitting(true);
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
-    const existing = await load(key)||{};
-    const order = {
-      ...form, cart, total,
-      status:"pending",
-      createdAt:new Date().toLocaleString("zh-TW"),
-      updatedAt:null,
-    };
-    existing[form.email.toLowerCase()] = order;
-    await save(key, existing);
-    // Update customer DB
-    const custs = await load("customers")||{};
-    const ek = form.email.toLowerCase();
-    custs[ek] = {
-      name:form.ordererName, email:ek, phone:form.phone,
-      lineId:form.lineId, relation:form.relation,
-      lastOrder:`${settings.year}/${settings.month}`,
-      orderCount:(custs[ek]?.orderCount||0)+1,
-    };
-    await save("customers",custs);
-    // 自動寄出訂購確認信
-    const emailContent = genConfirmEmail(order,cats);
-    sendEmail({
-      to: form.email,
-      subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂購確認 — ${form.ordererName}`,
-      body: emailContent,
-    });
-    setSubmitting(false);
-    onOrderSuccess(order, emailContent);
-    setCart({});
-    setForm({ordererName:"",email:"",lineId:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:"",note:""});
+    try {
+      const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+      const existing = await load(key)||{};
+      const order = {
+        ...form, cart, total,
+        status:"pending",
+        createdAt:new Date().toLocaleString("zh-TW"),
+        updatedAt:null,
+      };
+      existing[form.email.toLowerCase()] = order;
+      await save(key, existing);
+      // Update customer DB
+      const custs = await load("customers")||{};
+      const ek = form.email.toLowerCase();
+      custs[ek] = {
+        name:form.ordererName, email:ek, phone:form.phone,
+        lineId:form.lineId, relation:form.relation,
+        lastOrder:`${settings.year}/${settings.month}`,
+        orderCount:(custs[ek]?.orderCount||0)+1,
+      };
+      await save("customers",custs);
+      // 自動寄出訂購確認信
+      const emailContent = genConfirmEmail(order,cats);
+      sendEmail({
+        to: form.email,
+        subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂購確認 — ${form.ordererName}`,
+        body: emailContent,
+      });
+      setSubmitting(false);
+      onOrderSuccess(order, emailContent);
+      setCart({});
+      setForm({ordererName:"",email:"",lineId:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:"",note:""});
+    } catch(err) {
+      console.error("Submit error:", err);
+      alert("送出時發生錯誤，請再試一次。\n" + err.message);
+      setSubmitting(false);
+    }
   };
 
   const shown = tab==="all" ? cats : cats.filter(c=>c.key===tab);
