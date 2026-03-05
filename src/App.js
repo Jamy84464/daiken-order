@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const ADMIN_PW = "844844";
+const VERSION = "v1.5";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
@@ -503,8 +504,8 @@ function ShopView({settings,cats,onOrderSuccess}) {
             </Field>
           )}
 
-          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>setF("ordererName",v)} placeholder="姓名" /></Field>
-          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v=>setF("phone",v)} type="tel" placeholder="0912-345-678" /></Field>
+          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>{setF("ordererName",v); if(!form.recipientName) setF("recipientName",v);}} placeholder="姓名" /></Field>
+          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v=>{setF("phone",v); if(!form.recipientPhone) setF("recipientPhone",v);}} type="tel" placeholder="0912-345-678" /></Field>
           <Field label="與我的關係" required error={errors.relation}>
             <SelInput value={form.relation} onChange={v=>setF("relation",v)} options={["EMBA師長","EMBA同學","好友","其他"]} />
           </Field>
@@ -1137,8 +1138,9 @@ function CloseoutTab({settings,setSettings,cats}) {
 
 function EmailsTab({settings,cats}) {
   const [orders,setOrders]=useState(null);
+  const [allCustomers,setAllCustomers]=useState(null);
   const [noticeText,setNoticeText]=useState("");
-  const [sending,setSending]=useState({});   // email -> "sending"|"sent"|"error"
+  const [sending,setSending]=useState({});
   const [sendingAll,setSendingAll]=useState(false);
   const fp=flatProducts(cats);
   const bank=settings.bank||DEFAULT_BANK;
@@ -1146,91 +1148,67 @@ function EmailsTab({settings,cats}) {
   useEffect(()=>{
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     load(key).then(o=>setOrders(o||{}));
+    load("customers").then(c=>setAllCustomers(c||{}));
   },[settings]);
 
   const markSending=(email,state)=>setSending(p=>({...p,[email]:state}));
 
-  // 寄匯款信給單一訂購者
   const sendPayment=async(o)=>{
     markSending(o.email+"_pay","sending");
-    const ok=await sendEmail({
-      to: o.email,
-      subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`,
-      body: genPaymentEmail(o,bank,cats),
-    });
+    const ok=await sendEmail({ to:o.email, subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`, body:genPaymentEmail(o,bank,cats) });
     markSending(o.email+"_pay", ok?"sent":"error");
   };
 
-  // 寄匯款信給全部
   const sendAllPayment=async()=>{
     if(!list.length) return;
     setSendingAll(true);
     for(const o of list){
       markSending(o.email+"_pay","sending");
-      const ok=await sendEmail({
-        to: o.email,
-        subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`,
-        body: genPaymentEmail(o,bank,cats),
-      });
+      const ok=await sendEmail({ to:o.email, subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`, body:genPaymentEmail(o,bank,cats) });
       markSending(o.email+"_pay", ok?"sent":"error");
     }
     setSendingAll(false);
   };
 
-  // 寄特別通知給單一訂購者
-  const sendNotice=async(o)=>{
+  const sendNotice=async(target)=>{
     if(!noticeText.trim()){alert("請先輸入通知內容");return;}
-    markSending(o.email+"_notice","sending");
-    const body=`${o.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
-    const ok=await sendEmail({
-      to: o.email,
-      subject:`【大研生醫團購】特別通知`,
-      body,
-    });
-    markSending(o.email+"_notice", ok?"sent":"error");
+    const key=target.email+"_notice";
+    markSending(key,"sending");
+    const body=`${target.name||target.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
+    const ok=await sendEmail({ to:target.email, subject:`【大研生醫團購】特別通知`, body });
+    markSending(key, ok?"sent":"error");
   };
 
-  // 寄特別通知給全部
-  const sendAllNotice=async()=>{
+  const sendAllNotice=async(targets)=>{
     if(!noticeText.trim()){alert("請先輸入通知內容");return;}
-    if(!list.length) return;
+    if(!targets.length) return;
     setSendingAll(true);
-    for(const o of list){
-      markSending(o.email+"_notice","sending");
-      const body=`${o.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
-      const ok=await sendEmail({
-        to: o.email,
-        subject:`【大研生醫團購】特別通知`,
-        body,
-      });
-      markSending(o.email+"_notice", ok?"sent":"error");
+    for(const t of targets){
+      const key=t.email+"_notice";
+      markSending(key,"sending");
+      const body=`${t.name||t.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
+      const ok=await sendEmail({ to:t.email, subject:`【大研生醫團購】特別通知`, body });
+      markSending(key, ok?"sent":"error");
     }
     setSendingAll(false);
   };
 
-  const statusIcon=(key)=>{
-    const s=sending[key];
-    if(s==="sending") return " ⏳";
-    if(s==="sent")    return " ✅";
-    if(s==="error")   return " ❌";
-    return "";
-  };
+  const statusIcon=(key)=>{const s=sending[key];return s==="sending"?" ⏳":s==="sent"?" ✅":s==="error"?" ❌":"";}
 
-  if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
+  if(!orders||!allCustomers) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
   const list=Object.values(orders);
+  const allCustList=Object.values(allCustomers);
 
   return (
     <div>
-      {/* Payment emails */}
+      {/* Payment emails - 本月訂購者 */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
         <div className="serif" style={{fontSize:"0.97rem",fontWeight:700}}>💳 寄送匯款信件</div>
         {list.length>0&&<Btn onClick={sendAllPayment} disabled={sendingAll} small color={C.gold}>
           {sendingAll?"寄送中…":"📨 一鍵寄給全部 ("+list.length+"人)"}
         </Btn>}
       </div>
-      <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>
-        信件將從你的 Gmail 自動寄出，訂購者即時收到匯款資訊。
-      </p>
+      <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>信件將從你的 Gmail 自動寄出，訂購者即時收到匯款資訊。</p>
       {list.length===0
         ? <div style={{color:C.muted,marginBottom:20}}>本月尚無訂單</div>
         : list.map(o=>(
@@ -1240,38 +1218,63 @@ function EmailsTab({settings,cats}) {
               <span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>{o.email}</span>
               <span style={{fontSize:"0.78rem",color:C.green,fontWeight:600,marginLeft:8}}>NT${o.total.toLocaleString()}</span>
             </div>
-            <Btn onClick={()=>sendPayment(o)} small color={sending[o.email+"_pay"]==="sent"?C.gl:C.gold}
-              disabled={sending[o.email+"_pay"]==="sending"}>
-              {sending[o.email+"_pay"]==="sending"?"寄送中…":
-               sending[o.email+"_pay"]==="sent"?"✅ 已寄出":
-               sending[o.email+"_pay"]==="error"?"❌ 重試":"📧 寄匯款信"}
+            <Btn onClick={()=>sendPayment(o)} small color={sending[o.email+"_pay"]==="sent"?C.gl:C.gold} disabled={sending[o.email+"_pay"]==="sending"}>
+              {sending[o.email+"_pay"]==="sending"?"寄送中…":sending[o.email+"_pay"]==="sent"?"✅ 已寄出":sending[o.email+"_pay"]==="error"?"❌ 重試":"📧 寄匯款信"}
             </Btn>
           </div>
         ))
       }
 
-      {/* Special notice */}
+      {/* Special notice - 可選本月或全部歷史訂購人 */}
       <div style={{marginTop:24,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-          <div className="serif" style={{fontSize:"0.97rem",fontWeight:700}}>📣 寄送特別通知</div>
-          {list.length>0&&<Btn onClick={sendAllNotice} disabled={sendingAll||!noticeText.trim()} small color={C.green}>
-            {sendingAll?"寄送中…":"📨 一鍵寄給全部 ("+list.length+"人)"}
-          </Btn>}
-        </div>
+        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:12}}>📣 寄送特別通知</div>
         <TextArea value={noticeText} onChange={setNoticeText} rows={4} placeholder="輸入通知內容，將自動套用每位訂購者的姓名…"/>
-        {list.length===0
-          ? <div style={{color:C.muted,fontSize:"0.82rem",marginTop:10}}>本月尚無訂購者</div>
-          : <div style={{display:"flex",flexWrap:"wrap",gap:7,marginTop:10}}>
-              {list.map(o=>(
-                <Btn key={o.email} onClick={()=>sendNotice(o)} small
-                  color={sending[o.email+"_notice"]==="sent"?C.gl:C.green}
-                  disabled={sending[o.email+"_notice"]==="sending"||!noticeText.trim()}
-                  outline={sending[o.email+"_notice"]!=="sent"}>
-                  {o.ordererName}{statusIcon(o.email+"_notice")}
-                </Btn>
-              ))}
-            </div>
-        }
+
+        {/* 本月訂購者 */}
+        <div style={{marginTop:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <span style={{fontSize:"0.83rem",fontWeight:600,color:C.text}}>本月訂購者（{list.length} 人）</span>
+            {list.length>0&&<Btn onClick={()=>sendAllNotice(list.map(o=>({email:o.email,name:o.ordererName})))} disabled={sendingAll||!noticeText.trim()} small color={C.green}>
+              {sendingAll?"寄送中…":"📨 寄給全部本月訂購者"}
+            </Btn>}
+          </div>
+          {list.length===0
+            ? <div style={{color:C.muted,fontSize:"0.82rem"}}>本月尚無訂購者</div>
+            : <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                {list.map(o=>(
+                  <Btn key={o.email} onClick={()=>sendNotice({email:o.email,name:o.ordererName})} small
+                    color={sending[o.email+"_notice"]==="sent"?C.gl:C.green}
+                    disabled={sending[o.email+"_notice"]==="sending"||!noticeText.trim()}
+                    outline={sending[o.email+"_notice"]!=="sent"}>
+                    {o.ordererName}{statusIcon(o.email+"_notice")}
+                  </Btn>
+                ))}
+              </div>
+          }
+        </div>
+
+        {/* 全部歷史訂購人 */}
+        <div style={{marginTop:16,paddingTop:14,borderTop:`1px dashed ${C.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <span style={{fontSize:"0.83rem",fontWeight:600,color:C.text}}>全部歷史訂購人（{allCustList.length} 人）</span>
+            {allCustList.length>0&&<Btn onClick={()=>sendAllNotice(allCustList.map(c=>({email:c.email,name:c.name})))} disabled={sendingAll||!noticeText.trim()} small color={C.green}>
+              {sendingAll?"寄送中…":"📨 寄給全部歷史訂購人"}
+            </Btn>}
+          </div>
+          {allCustList.length===0
+            ? <div style={{color:C.muted,fontSize:"0.82rem"}}>尚無歷史訂購人資料</div>
+            : <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+                {allCustList.map(c=>(
+                  <Btn key={c.email} onClick={()=>sendNotice({email:c.email,name:c.name})} small
+                    color={sending[c.email+"_notice"]==="sent"?C.gl:C.green}
+                    disabled={sending[c.email+"_notice"]==="sending"||!noticeText.trim()}
+                    outline={sending[c.email+"_notice"]!=="sent"}>
+                    {c.name}{statusIcon(c.email+"_notice")}
+                  </Btn>
+                ))}
+              </div>
+          }
+        </div>
       </div>
     </div>
   );
@@ -1434,7 +1437,7 @@ export default function App() {
           <div style={{maxWidth:1200,margin:"0 auto",padding:"13px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
             <div onClick={()=>setView("shop")} style={{cursor:"pointer"}}>
               <div className="serif" style={{fontSize:"1.1rem",fontWeight:700,letterSpacing:".04em"}}>🌿 大研生醫 × 團購專區</div>
-              <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>EMBA · 師長 · 好友 專屬</div>
+              <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>EMBA · 師長 · 好友 專屬 <span style={{opacity:.6,marginLeft:6}}>{VERSION}</span></div>
             </div>
             <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
               {[["shop","🛒 訂購"],["myorder","🔍 查詢/修改訂單"],["admin","⚙️ 後台"]].map(([v,l])=>(
