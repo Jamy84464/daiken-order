@@ -69,9 +69,9 @@ const INIT_CATS = [
   { key:"fish", label:"🐟 魚油系列", products:[
     {id:"p1", name:"德國頂級魚油",                    price:700,  outOfStock:false, url:D+"4710255450036"},
     {id:"p2", name:"德國頂級魚油(旗艦加大120粒)",      price:1450, outOfStock:false, url:D+"4710255450487"},
-    {id:"p3", name:"🇩🇪 兒童DHA 80% 魚油軟膠囊",     price:450,  outOfStock:false, url:D+"4710255450364"},
+    {id:"p3", name:"兒童DHA 80% 魚油軟膠囊",     price:450,  outOfStock:false, url:D+"4710255450364"},
     {id:"p4", name:"EPA 1200 頂級魚油軟膠囊",          price:820,  outOfStock:false, url:D+"4710255450920"},
-    {id:"p5", name:"🇩🇪 德國頂級魚油軟膠囊EX",        price:1008, outOfStock:false, url:D+"4710255450845"},
+    {id:"p5", name:"德國頂級魚油軟膠囊EX",        price:1008, outOfStock:false, url:D+"4710255450845"},
   ]},
   { key:"vitamin", label:"💊 維生素礦物質", products:[
     {id:"p6",  name:"倍力他命BELINAMIN膜衣錠",         price:475,  outOfStock:false, url:D+"4710255450722"},
@@ -409,7 +409,9 @@ function ShopView({settings,cats,onOrderSuccess}) {
     }
   };
 
-  const shown = tab==="all" ? cats : cats.filter(c=>c.key===tab);
+  const shown = tab==="all"
+    ? cats.map(c=>({...c,products:c.products.filter(p=>!p.hidden)})).filter(c=>c.products.length>0)
+    : cats.filter(c=>c.key===tab).map(c=>({...c,products:c.products.filter(p=>!p.hidden)}));
 
   return (
     <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:24,alignItems:"start"}}>
@@ -761,6 +763,11 @@ function ProductsTab({cats,setCats}) {
     setCats(updated);await save("cats",updated);
   };
 
+  const toggleHidden=async(catKey,id)=>{
+    const updated=cats.map(c=>c.key===catKey?{...c,products:c.products.map(p=>p.id===id?{...p,hidden:!p.hidden}:p)}:c);
+    setCats(updated);await save("cats",updated);
+  };
+
   const importProducts=async()=>{
     const lines=pasteText.trim().split("\n").map(l=>l.trim()).filter(Boolean);
     const newProds=[];
@@ -768,7 +775,7 @@ function ProductsTab({cats,setCats}) {
       if(lines[i+1]&&lines[i+1].startsWith("NT$")){
         const price=parseInt(lines[i+1].replace(/[^0-9]/g,""));
         if(!isNaN(price)){
-          newProds.push({id:`custom_${Date.now()}_${i}`,name:lines[i],price,outOfStock:false,url:BASE_URL});
+          newProds.push({id:`custom_${Date.now()}_${i}`,name:lines[i],price,outOfStock:false,hidden:false,url:BASE_URL});
           i++;
         }
       }
@@ -783,6 +790,11 @@ function ProductsTab({cats,setCats}) {
   return (
     <div>
       <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>📦 產品管理</div>
+      <div style={{display:"flex",gap:14,fontSize:"0.75rem",marginBottom:16,flexWrap:"wrap"}}>
+        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:4,padding:"1px 7px"}}>正常</span>上架中</span>
+        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{background:"#fff8e1",border:"1px solid #f6ad55",borderRadius:4,padding:"1px 7px",color:"#c05621"}}>缺貨</span>顯示但無法訂購</span>
+        <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{background:"#f0f0f0",border:`1px solid ${C.muted}`,borderRadius:4,padding:"1px 7px",color:C.muted}}>下架</span>完全不顯示</span>
+      </div>
       {/* Paste import */}
       <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:20}}>
         <div style={{fontSize:"0.87rem",fontWeight:600,marginBottom:8}}>匯入新產品（貼上格式）</div>
@@ -798,15 +810,37 @@ function ProductsTab({cats,setCats}) {
       {cats.map(cat=>(
         <div key={cat.key} style={{marginBottom:18}}>
           <div className="serif" style={{fontSize:"0.87rem",fontWeight:600,color:C.green,marginBottom:8}}>{cat.label}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-            {cat.products.map(p=>(
-              <div key={p.id} style={{background:p.outOfStock?"#f0f0f0":C.gp,border:`1.5px solid ${p.outOfStock?C.muted:C.gl}`,borderRadius:9,padding:"7px 12px",display:"flex",alignItems:"center",gap:9}}>
-                <span style={{fontSize:"0.8rem",color:p.outOfStock?C.muted:C.text}}>{p.name} — NT${p.price.toLocaleString()}</span>
-                <button onClick={()=>toggleOOS(cat.key,p.id)} style={{background:p.outOfStock?C.gl:C.red,color:C.white,border:"none",borderRadius:6,padding:"3px 8px",fontSize:"0.72rem",cursor:"pointer",whiteSpace:"nowrap"}}>
-                  {p.outOfStock?"恢復上架":"設為缺貨"}
-                </button>
-              </div>
-            ))}
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {cat.products.map(p=>{
+              const isHidden=p.hidden;
+              const isOOS=p.outOfStock;
+              return (
+                <div key={p.id} style={{
+                  background:isHidden?"#f5f5f5":isOOS?"#fff8e1":C.gp,
+                  border:`1.5px solid ${isHidden?C.muted:isOOS?"#f6ad55":C.gl}`,
+                  borderRadius:9,padding:"8px 12px",
+                  display:"flex",alignItems:"center",justifyContent:"space-between",gap:9,
+                  opacity:isHidden?0.5:1
+                }}>
+                  <span style={{fontSize:"0.8rem",color:isHidden?C.muted:C.text,flex:1}}>
+                    {p.name} — NT${p.price.toLocaleString()}
+                    {isHidden&&<span style={{marginLeft:6,fontSize:"0.7rem",color:C.muted}}>（已下架）</span>}
+                    {isOOS&&!isHidden&&<span style={{marginLeft:6,fontSize:"0.7rem",color:"#c05621"}}>（缺貨）</span>}
+                  </span>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>toggleOOS(cat.key,p.id)}
+                      disabled={isHidden}
+                      style={{background:isOOS?C.gl:"#f6ad55",color:C.white,border:"none",borderRadius:6,padding:"3px 8px",fontSize:"0.72rem",cursor:isHidden?"not-allowed":"pointer",whiteSpace:"nowrap",opacity:isHidden?0.4:1}}>
+                      {isOOS?"恢復上架":"設為缺貨"}
+                    </button>
+                    <button onClick={()=>toggleHidden(cat.key,p.id)}
+                      style={{background:isHidden?C.green:"#718096",color:C.white,border:"none",borderRadius:6,padding:"3px 8px",fontSize:"0.72rem",cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {isHidden?"重新上架":"下架"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -816,6 +850,7 @@ function ProductsTab({cats,setCats}) {
 
 function OrdersTab({settings,cats}) {
   const [orders,setOrders]=useState(null);
+  const [confirmDelete,setConfirmDelete]=useState(null);
   const fp=flatProducts(cats);
   useEffect(()=>{
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
@@ -826,11 +861,19 @@ function OrdersTab({settings,cats}) {
     const upd={...orders,[email]:{...orders[email],status:orders[email].status==="handled"?"pending":"handled"}};
     setOrders(upd);await save(key,upd);
   };
+  const deleteOrder=async(email)=>{
+    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const upd={...orders};
+    delete upd[email];
+    setOrders(upd);await save(key,upd);
+    setConfirmDelete(null);
+  };
   if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
   const list=Object.values(orders).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
   const totalAmt=list.filter(o=>o.status!=="handled").reduce((s,o)=>s+o.total,0);
   return (
     <div>
+      {confirmDelete&&<ConfirmModal msg={`確定刪除 ${confirmDelete} 的訂單？此操作無法復原。`} onOk={()=>deleteOrder(confirmDelete)} onCancel={()=>setConfirmDelete(null)}/>}
       <div style={{display:"flex",gap:12,marginBottom:16,flexWrap:"wrap"}}>
         {[["📦 訂單數",list.length,C.green],["⏳ 待處理",list.filter(o=>o.status!=="handled").length,C.gold],["✅ 已處理",list.filter(o=>o.status==="handled").length,C.gl],["💰 待收",`NT$${totalAmt.toLocaleString()}`,C.red]].map(([l,v,c])=>(
           <div key={l} style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:10,padding:"12px 16px",minWidth:110}}>
@@ -855,6 +898,9 @@ function OrdersTab({settings,cats}) {
                 <button onClick={()=>toggleStatus(o.email)} style={{background:o.status==="handled"?C.gl:C.gold,color:C.white,border:"none",borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:"pointer"}}>
                   {o.status==="handled"?"↩ 恢復":"✅ 已處理"}
                 </button>
+                <button onClick={()=>setConfirmDelete(o.email)} style={{background:"none",color:C.red,border:`1px solid ${C.red}`,borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:"pointer"}}>
+                  🗑 刪除
+                </button>
               </div>
             </div>
             <div style={{padding:"9px 14px",display:"flex",flexWrap:"wrap",gap:5}}>
@@ -862,7 +908,6 @@ function OrdersTab({settings,cats}) {
             </div>
             <div style={{padding:"4px 14px 9px",fontSize:"0.77rem",color:C.muted}}>
               📍 {o.recipientName}｜{o.recipientPhone}｜{o.recipientAddress}
-              {o.note&&` ｜ 備註: ${o.note}`}
             </div>
           </div>
         );
@@ -1271,6 +1316,21 @@ function NewMonthTab({settings,setSettings}) {
           {checking?"檢查中…":`🚀 開始 ${year}年${month}月的團購`}
         </Btn>
       </div>
+
+      {/* 清除測試資料 */}
+      <div style={{marginTop:28,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
+        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:8,color:C.red}}>🧹 清除測試資料</div>
+        <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>
+          清除本機快取資料（localStorage），讓系統重新從 Google Sheets 讀取最新資料。<br/>
+          <strong style={{color:C.red}}>注意：Google Sheets 裡的資料請手動刪除。</strong>
+        </p>
+        <Btn color={C.red} outline onClick={()=>{
+          if(window.confirm("確定要清除本機快取嗎？頁面將自動重新整理。")){
+            localStorage.clear();
+            window.location.reload();
+          }
+        }}>🗑 清除本機快取並重新整理</Btn>
+      </div>
     </div>
   );
 }
@@ -1344,7 +1404,7 @@ export default function App() {
               <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>EMBA · 師長 · 好友 專屬</div>
             </div>
             <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-              {[["shop","🛒 訂購"],["myorder","🔍 查詢訂單"],["admin","⚙️ 後台"]].map(([v,l])=>(
+              {[["shop","🛒 訂購"],["myorder","🔍 查詢/修改訂單"],["admin","⚙️ 後台"]].map(([v,l])=>(
                 <button key={v} onClick={()=>setView(v)} style={{
                   background:view===v?"rgba(255,255,255,.25)":"rgba(255,255,255,.12)",
                   color:C.white,border:`1px solid rgba(255,255,255,${view===v?.4:.2})`,
