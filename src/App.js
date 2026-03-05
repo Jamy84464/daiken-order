@@ -757,8 +757,8 @@ function BulletinTab({settings,setSettings}) {
 }
 
 function ProductsTab({cats,setCats}) {
-  const [pasteText,setPasteText]=useState("");
-  const [msg,setMsg]=useState("");
+  const [reloading,setReloading]=useState(false);
+  const [reloadMsg,setReloadMsg]=useState("");
 
   const toggleOOS=async(catKey,id)=>{
     const updated=cats.map(c=>c.key===catKey?{...c,products:c.products.map(p=>p.id===id?{...p,outOfStock:!p.outOfStock}:p)}:c);
@@ -770,44 +770,52 @@ function ProductsTab({cats,setCats}) {
     setCats(updated);await save("cats",updated);
   };
 
-  const importProducts=async()=>{
-    const lines=pasteText.trim().split("\n").map(l=>l.trim()).filter(Boolean);
-    const newProds=[];
-    for(let i=0;i<lines.length;i++){
-      if(lines[i+1]&&lines[i+1].startsWith("NT$")){
-        const price=parseInt(lines[i+1].replace(/[^0-9]/g,""));
-        if(!isNaN(price)){
-          newProds.push({id:`custom_${Date.now()}_${i}`,name:lines[i],price,outOfStock:false,hidden:false,url:BASE_URL});
-          i++;
-        }
+  const reloadFromSheet=async()=>{
+    setReloading(true);setReloadMsg("");
+    try {
+      const res=await fetch(`${GAS_URL}?action=getCats`);
+      const json=await res.json();
+      if(json.success && json.value){
+        const newCats=JSON.parse(json.value);
+        setCats(newCats);
+        try{localStorage.setItem("cats",JSON.stringify(newCats));}catch{}
+        setReloadMsg("✅ 已從試算表重新載入！");
+      } else {
+        setReloadMsg("❌ 載入失敗：" + (json.error||"未知錯誤"));
       }
-    }
-    if(newProds.length===0){setMsg("無法解析，請確認格式");return;}
-    const updated=cats.map(c=>c.key==="custom"?{...c,products:[...c.products,...newProds]}:c);
-    const withCustom=updated.some(c=>c.key==="custom")?updated:[...updated,{key:"custom",label:"🆕 匯入商品",products:newProds}];
-    setCats(withCustom);await save("cats",withCustom);
-    setPasteText("");setMsg(`✅ 成功匯入 ${newProds.length} 項商品`);
+    } catch(e){ setReloadMsg("❌ 連線失敗，請確認 Apps Script 已部署"); }
+    setReloading(false);
   };
 
   return (
     <div>
       <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>📦 產品管理</div>
+
+      {/* Google Sheets 說明 */}
+      <div style={{background:"#f0faf4",border:`1.5px solid ${C.gl}`,borderRadius:12,padding:16,marginBottom:20}}>
+        <div style={{fontWeight:600,fontSize:"0.88rem",marginBottom:8,color:C.green}}>📊 透過 Google Sheets 管理產品</div>
+        <p style={{fontSize:"0.81rem",color:C.muted,lineHeight:1.9,marginBottom:10}}>
+          在 Google Sheets「<strong>產品目錄</strong>」工作表新增或修改產品後，按下方按鈕重新載入。<br/>
+          欄位順序（標題列之後每列一個產品）：<br/>
+          <code style={{background:"#e8f5e9",padding:"2px 6px",borderRadius:3,fontSize:"0.76rem"}}>
+            分類key ｜ 分類名稱 ｜ 產品ID ｜ 產品名稱 ｜ 價格 ｜ 網址 ｜ 缺貨(TRUE/FALSE) ｜ 下架(TRUE/FALSE)
+          </code>
+        </p>
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          <Btn onClick={reloadFromSheet} disabled={reloading} color={C.green} small>
+            {reloading?"載入中…":"🔄 從試算表重新載入產品"}
+          </Btn>
+          {reloadMsg&&<span style={{fontSize:"0.8rem",color:reloadMsg.startsWith("✅")?C.gl:C.red}}>{reloadMsg}</span>}
+        </div>
+      </div>
+
+      {/* 狀態說明 */}
       <div style={{display:"flex",gap:14,fontSize:"0.75rem",marginBottom:16,flexWrap:"wrap"}}>
         <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:4,padding:"1px 7px"}}>正常</span>上架中</span>
         <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{background:"#fff8e1",border:"1px solid #f6ad55",borderRadius:4,padding:"1px 7px",color:"#c05621"}}>缺貨</span>顯示但無法訂購</span>
         <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{background:"#f0f0f0",border:`1px solid ${C.muted}`,borderRadius:4,padding:"1px 7px",color:C.muted}}>下架</span>完全不顯示</span>
       </div>
-      {/* Paste import */}
-      <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:20}}>
-        <div style={{fontSize:"0.87rem",fontWeight:600,marginBottom:8}}>匯入新產品（貼上格式）</div>
-        <p style={{fontSize:"0.78rem",color:C.muted,marginBottom:8,lineHeight:1.7}}>每筆一個名稱＋NT$價格，空行分隔：</p>
-        <pre style={{background:C.cream,borderRadius:7,padding:"8px 12px",fontSize:"0.75rem",color:C.muted,marginBottom:10}}>{"產品名稱\nNT$999\n\n另一個產品\nNT$500"}</pre>
-        <TextArea value={pasteText} onChange={setPasteText} rows={5} placeholder="貼上產品清單…"/>
-        <div style={{marginTop:8,display:"flex",gap:10,alignItems:"center"}}>
-          <Btn onClick={importProducts} small color={C.gl}>匯入</Btn>
-          {msg&&<span style={{fontSize:"0.8rem",color:msg.startsWith("✅")?C.gl:C.red}}>{msg}</span>}
-        </div>
-      </div>
+
       {/* Product list */}
       {cats.map(cat=>(
         <div key={cat.key} style={{marginBottom:18}}>
@@ -817,21 +825,14 @@ function ProductsTab({cats,setCats}) {
               const isHidden=p.hidden;
               const isOOS=p.outOfStock;
               return (
-                <div key={p.id} style={{
-                  background:isHidden?"#f5f5f5":isOOS?"#fff8e1":C.gp,
-                  border:`1.5px solid ${isHidden?C.muted:isOOS?"#f6ad55":C.gl}`,
-                  borderRadius:9,padding:"8px 12px",
-                  display:"flex",alignItems:"center",justifyContent:"space-between",gap:9,
-                  opacity:isHidden?0.5:1
-                }}>
+                <div key={p.id} style={{background:isHidden?"#f5f5f5":isOOS?"#fff8e1":C.gp,border:`1.5px solid ${isHidden?C.muted:isOOS?"#f6ad55":C.gl}`,borderRadius:9,padding:"8px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:9,opacity:isHidden?0.5:1}}>
                   <span style={{fontSize:"0.8rem",color:isHidden?C.muted:C.text,flex:1}}>
                     {p.name} — NT${p.price.toLocaleString()}
                     {isHidden&&<span style={{marginLeft:6,fontSize:"0.7rem",color:C.muted}}>（已下架）</span>}
                     {isOOS&&!isHidden&&<span style={{marginLeft:6,fontSize:"0.7rem",color:"#c05621"}}>（缺貨）</span>}
                   </span>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
-                    <button onClick={()=>toggleOOS(cat.key,p.id)}
-                      disabled={isHidden}
+                    <button onClick={()=>toggleOOS(cat.key,p.id)} disabled={isHidden}
                       style={{background:isOOS?C.gl:"#f6ad55",color:C.white,border:"none",borderRadius:6,padding:"3px 8px",fontSize:"0.72rem",cursor:isHidden?"not-allowed":"pointer",whiteSpace:"nowrap",opacity:isHidden?0.4:1}}>
                       {isOOS?"恢復上架":"設為缺貨"}
                     </button>
@@ -1341,12 +1342,13 @@ function NewMonthTab({settings,setSettings}) {
 export default function App() {
   const [view,setView]=useState("shop");
   const [settings,setSettings]=useState(null);
-  const [cats,setCats]=useState(INIT_CATS);
+  const [cats,setCats]=useState(null);
   const [successModal,setSuccessModal]=useState(null);
   const [emailModal,setEmailModal]=useState(null);
 
   useEffect(()=>{
     (async()=>{
+      // 載入設定
       let s=await load("settings");
       if(!s){
         const now=new Date();
@@ -1354,15 +1356,27 @@ export default function App() {
         await save("settings",s);
       }
       setSettings(s);
-      const savedCats=await load("cats");
-      if(savedCats){
-        // Merge correct URLs from INIT_CATS into saved cats (in case old storage has no url)
-        const initMap={};
-        INIT_CATS.forEach(c=>c.products.forEach(p=>{initMap[p.id]=p.url;}));
-        const merged=savedCats.map(c=>({...c,products:c.products.map(p=>({...p,url:initMap[p.id]||p.url}))}));
-        setCats(merged);
-        await save("cats",merged);
+
+      // 從 Google Sheets「產品目錄」載入產品（優先）
+      let loadedCats = null;
+      try {
+        const url=`${GAS_URL}?action=getCats`;
+        const res=await fetch(url);
+        const json=await res.json();
+        if(json.success && json.value) {
+          loadedCats = JSON.parse(json.value);
+        }
+      } catch(e){ console.warn("getCats from sheet failed, using cache"); }
+
+      // fallback：從 localStorage 快取或 INIT_CATS
+      if(!loadedCats){
+        const savedCats=await load("cats");
+        loadedCats = savedCats || INIT_CATS;
       }
+
+      setCats(loadedCats);
+      // 同步到 localStorage 快取
+      try { localStorage.setItem("cats", JSON.stringify(loadedCats)); } catch{}
     })();
   },[]);
 
@@ -1370,7 +1384,7 @@ export default function App() {
     setSuccessModal(order);
   };
 
-  if(!settings) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>載入中…</div>;
+  if(!settings || !cats) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>載入中…</div>;
 
   const isOpen=settings.isOpen;
   const monthLabel=`${settings.year}年${settings.month}月`;
