@@ -572,27 +572,31 @@ function MyOrderView({settings,cats}) {
       <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:24,alignItems:"start"}}>
         {/* mini product grid */}
         <div>
-          {cats.map(cat=>(
-            <div key={cat.key} style={{marginBottom:22}}>
-              <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,color:C.green,marginBottom:9,paddingBottom:6,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:9}}>
-                {cat.products.filter(p=>!p.outOfStock).map(p=>{
-                  const q=cart[p.id]||0;
-                  return (
-                    <div key={p.id} style={{background:q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:11,padding:12}}>
-                      <div style={{fontSize:"0.82rem",fontWeight:500,lineHeight:1.4,marginBottom:6}}>{p.name}</div>
-                      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,color:C.green,marginBottom:6}}>NT${p.price.toLocaleString()}</div>
-                      <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden"}}>
-                        <button onClick={()=>setCart(prev=>({...prev,[p.id]:Math.max(0,(prev[p.id]||0)-1)}))} style={{width:28,height:28,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>−</button>
-                        <input type="number" value={q} onChange={e=>setCart(prev=>({...prev,[p.id]:Math.max(0,parseInt(e.target.value)||0)}))} style={{flex:1,border:"none",textAlign:"center",fontSize:"0.86rem",fontWeight:600,background:C.white,outline:"none"}} />
-                        <button onClick={()=>setCart(prev=>({...prev,[p.id]:(prev[p.id]||0)+1}))} style={{width:28,height:28,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>＋</button>
+          {cats.map(cat=>{
+            const visibleProds=cat.products.filter(p=>!p.hidden&&!p.outOfStock);
+            if(visibleProds.length===0) return null;
+            return (
+              <div key={cat.key} style={{marginBottom:22}}>
+                <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,color:C.green,marginBottom:9,paddingBottom:6,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:9}}>
+                  {visibleProds.map(p=>{
+                    const q=cart[p.id]||0;
+                    return (
+                      <div key={p.id} style={{background:q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:11,padding:12}}>
+                        <div style={{fontSize:"0.82rem",fontWeight:500,lineHeight:1.4,marginBottom:6}}>{p.name}</div>
+                        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,color:C.green,marginBottom:6}}>NT${p.price.toLocaleString()}</div>
+                        <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden",width:"100%"}}>
+                          <button onClick={()=>setCart(prev=>({...prev,[p.id]:Math.max(0,(prev[p.id]||0)-1)}))} style={{flexShrink:0,width:32,height:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>−</button>
+                          <input type="number" value={q} onChange={e=>setCart(prev=>({...prev,[p.id]:Math.max(0,parseInt(e.target.value)||0)}))} style={{flex:1,minWidth:0,border:"none",textAlign:"center",fontSize:"0.86rem",fontWeight:600,background:C.white,outline:"none"}} />
+                          <button onClick={()=>setCart(prev=>({...prev,[p.id]:(prev[p.id]||0)+1}))} style={{flexShrink:0,width:32,height:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>＋</button>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         {/* Edit form */}
         <div style={{position:"sticky",top:72,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
@@ -600,7 +604,6 @@ function MyOrderView({settings,cats}) {
           <Field label="收件人姓名" required><TextInput value={form.recipientName} onChange={v=>setForm(p=>({...p,recipientName:v}))} /></Field>
           <Field label="收件地址" required><TextInput value={form.recipientAddress} onChange={v=>setForm(p=>({...p,recipientAddress:v}))} /></Field>
           <Field label="收件人電話" required><TextInput value={form.recipientPhone} onChange={v=>setForm(p=>({...p,recipientPhone:v}))} /></Field>
-          <Field label="備註"><TextArea value={form.note||""} onChange={v=>setForm(p=>({...p,note:v}))} rows={2}/></Field>
           <Btn onClick={handleSave} disabled={saving} full>✅ {saving?"儲存中…":"確認更新訂單"}</Btn>
         </div>
       </div>
@@ -631,11 +634,10 @@ function MyOrderView({settings,cats}) {
           </div>
           <div style={{padding:"15px 18px"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"7px 14px",marginBottom:13,fontSize:"0.82rem"}}>
-              {[["📱",order.phone],["💬 LINE",order.lineId||"—"],["👥",order.relation]].map(([k,v])=>(
+              {[["📱",order.phone],["👥",order.relation]].map(([k,v])=>(
                 <div key={k}><span style={{color:C.muted}}>{k}：</span>{v}</div>
               ))}
               <div style={{gridColumn:"1/-1"}}><span style={{color:C.muted}}>📍 收件：</span>{order.recipientName}｜{order.recipientPhone}｜{order.recipientAddress}</div>
-              {order.note&&<div style={{gridColumn:"1/-1"}}><span style={{color:C.muted}}>備註：</span>{order.note}</div>}
             </div>
             <div style={{borderTop:`1px solid ${C.border}`,paddingTop:11}}>
               {Object.entries(order.cart).filter(([,q])=>q>0).map(([id,q])=>{const p=fp[id];return p&&(
