@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const ADMIN_PW = "844844";
-const VERSION = "v1.5";
+const VERSION = "v1.6";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
@@ -167,16 +167,24 @@ ${lines}
 function genPaymentEmail(order, bank, cats) {
   const fp = flatProducts(cats);
   const items = Object.entries(order.cart).filter(([,q])=>q>0);
+  const oosItems = [];
   const lines = items.map(([id,q]) => {
     const p = fp[id]; if (!p) return "";
-    return `產品名稱：${p.name}\n數量：${q}\n金額：${p.price.toLocaleString()}\n總計：${(p.price*q).toLocaleString()}`;
-  }).join("\n\n");
+    if (p.outOfStock) { oosItems.push(p.name); return `產品名稱：${p.name}\n數量：${q}\n⚠️ 此品項目前缺貨，已從本次金額中扣除`; }
+    return `產品名稱：${p.name}\n數量：${q}\n金額：NT$${p.price.toLocaleString()}\n總計：NT$${(p.price*q).toLocaleString()}`;
+  }).filter(Boolean).join("\n\n");
+  const actualTotal = items.reduce((s,[id,q])=>{
+    const p=fp[id]; return (!p||p.outOfStock)?s:s+(p.price*q);
+  },0);
+  const oosNote = oosItems.length>0
+    ? `\n⚠️ 注意：以下品項目前缺貨，已從金額中扣除：\n${oosItems.map(n=>"・"+n).join("\n")}\n`
+    : "";
   return `${order.ordererName} 學長/姐您好，以下是您的訂單詳細資訊：
 
 ------------------------------------------------------------
 ${lines}
 ------------------------------------------------------------
-總金額：${order.total.toLocaleString()}
+${oosNote}實際應付總金額：NT$${actualTotal.toLocaleString()}
 ------------------------------------------------------------
 收件人：${order.recipientName}
 地址：${order.recipientAddress}
@@ -305,9 +313,11 @@ function ShopView({settings,cats,onOrderSuccess}) {
   const [form,setForm]=useState({email:"",emailConfirm:"",ordererName:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:""});
   const [submitting,setSubmitting]=useState(false);
   const [errors,setErrors]=useState({});
-  const [emailLookupDone,setEmailLookupDone]=useState(false); // true = found in DB
-  const [emailChecked,setEmailChecked]=useState(false);       // true = email field blurred
+  const [emailLookupDone,setEmailLookupDone]=useState(false);
+  const [emailChecked,setEmailChecked]=useState(false);
   const [lookingUp,setLookingUp]=useState(false);
+  // 追蹤收件人是否還與訂購人同步
+  const recipientLinked = useRef(true);
 
   const fp = flatProducts(cats);
   const cartItems = Object.entries(cart).filter(([,q])=>q>0);
@@ -504,16 +514,22 @@ function ShopView({settings,cats,onOrderSuccess}) {
             </Field>
           )}
 
-          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>{setF("ordererName",v); if(!form.recipientName) setF("recipientName",v);}} placeholder="姓名" /></Field>
-          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v=>{setF("phone",v); if(!form.recipientPhone) setF("recipientPhone",v);}} type="tel" placeholder="0912-345-678" /></Field>
+          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>{
+            setF("ordererName",v);
+            if(recipientLinked.current) setF("recipientName",v);
+          }} placeholder="姓名" /></Field>
+          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v=>{
+            setF("phone",v);
+            if(recipientLinked.current) setF("recipientPhone",v);
+          }} type="tel" placeholder="0912-345-678" /></Field>
           <Field label="與我的關係" required error={errors.relation}>
             <SelInput value={form.relation} onChange={v=>setF("relation",v)} options={["EMBA師長","EMBA同學","好友","其他"]} />
           </Field>
 
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,margin:"14px 0 10px",color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📦 收件人資訊</div>
-          <Field label="收件人姓名" required error={errors.recipientName}><TextInput value={form.recipientName} onChange={v=>setF("recipientName",v)} placeholder="收件人姓名" /></Field>
+          <Field label="收件人姓名" required error={errors.recipientName}><TextInput value={form.recipientName} onChange={v=>{recipientLinked.current=false; setF("recipientName",v);}} placeholder="收件人姓名" /></Field>
           <Field label="收件地址" required error={errors.recipientAddress}><TextInput value={form.recipientAddress} onChange={v=>setF("recipientAddress",v)} placeholder="縣市 + 詳細地址" /></Field>
-          <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v=>setF("recipientPhone",v)} type="tel" placeholder="0912-345-678" /></Field>
+          <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v=>{recipientLinked.current=false; setF("recipientPhone",v);}} type="tel" placeholder="0912-345-678" /></Field>
 
           <Btn onClick={submit} disabled={submitting} full color={C.green} style={{marginTop:4,padding:"13px"}}>
             {submitting?"處理中…":"送出訂單 ✉️"}
@@ -687,11 +703,11 @@ function AdminView({settings,setSettings,cats,setCats}) {
   const tabs=[
     {k:"orders",l:"📋 本月訂單"},
     {k:"closeout",l:"🚚 結單送貨"},
+    {k:"emails",l:"✉️ 寄送信件"},
     {k:"history",l:"📚 歷史訂單"},
     {k:"customers",l:"👥 訂購人資訊"},
     {k:"bulletin",l:"📢 公布欄"},
     {k:"products",l:"📦 產品管理"},
-    {k:"emails",l:"✉️ 寄送信件"},
     {k:"newmonth",l:"🗓 新月份"},
   ];
 
