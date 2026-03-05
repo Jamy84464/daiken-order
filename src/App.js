@@ -289,9 +289,12 @@ function ConfirmModal({msg,onOk,onCancel}) {
 function ShopView({settings,cats,onOrderSuccess}) {
   const [tab,setTab]=useState("all");
   const [cart,setCart]=useState({});
-  const [form,setForm]=useState({ordererName:"",email:"",lineId:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:"",note:""});
+  const [form,setForm]=useState({email:"",emailConfirm:"",ordererName:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:""});
   const [submitting,setSubmitting]=useState(false);
   const [errors,setErrors]=useState({});
+  const [emailLookupDone,setEmailLookupDone]=useState(false); // true = found in DB
+  const [emailChecked,setEmailChecked]=useState(false);       // true = email field blurred
+  const [lookingUp,setLookingUp]=useState(false);
 
   const fp = flatProducts(cats);
   const cartItems = Object.entries(cart).filter(([,q])=>q>0);
@@ -300,10 +303,37 @@ function ShopView({settings,cats,onOrderSuccess}) {
   const setQ=(id,q)=>setCart(p=>({...p,[id]:Math.max(0,Math.min(99,q))}));
   const setF=(k,v)=>setForm(p=>({...p,[k]:v}));
 
+  // 輸入 email 後離開欄位時，查詢歷史訂購人清單
+  const handleEmailBlur=async()=>{
+    const ek=form.email.trim().toLowerCase();
+    if(!ek||!/\S+@\S+\.\S+/.test(ek)){setEmailChecked(true);return;}
+    setLookingUp(true);
+    const custs=await load("customers")||{};
+    const found=custs[ek];
+    setLookingUp(false);
+    setEmailChecked(true);
+    if(found){
+      // 帶入歷史資料
+      setForm(p=>({...p,
+        ordererName: found.name||"",
+        phone:       found.phone||"",
+        relation:    found.relation||"",
+        recipientName:    found.lastRecipientName||"",
+        recipientAddress: found.lastRecipientAddress||"",
+        recipientPhone:   found.lastRecipientPhone||"",
+        emailConfirm: ek, // 已知 email 不需再確認
+      }));
+      setEmailLookupDone(true);
+    } else {
+      setEmailLookupDone(false);
+    }
+  };
+
   const validate=()=>{
     const e={};
+    if(!form.email||!/\S+@\S+\.\S+/.test(form.email.trim())) e.email="請填寫有效 Email";
+    if(!emailLookupDone && form.email.trim().toLowerCase()!==form.emailConfirm.trim().toLowerCase()) e.emailConfirm="兩次 Email 不一致";
     if(!form.ordererName) e.ordererName="必填";
-    if(!form.email||!/\S+@\S+\.\S+/.test(form.email)) e.email="請填寫有效 email";
     if(!form.phone) e.phone="必填";
     if(!form.relation) e.relation="必填";
     if(!form.recipientName) e.recipientName="必填";
@@ -320,35 +350,46 @@ function ShopView({settings,cats,onOrderSuccess}) {
     try {
       const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
       const existing = await load(key)||{};
+      const ek=form.email.trim().toLowerCase();
       const order = {
-        ...form, cart, total,
+        ordererName:form.ordererName, email:ek, phone:form.phone,
+        relation:form.relation,
+        recipientName:form.recipientName, recipientAddress:form.recipientAddress, recipientPhone:form.recipientPhone,
+        cart, total,
         status:"pending",
         createdAt:new Date().toLocaleString("zh-TW"),
         updatedAt:null,
       };
-      existing[form.email.toLowerCase()] = order;
+      existing[ek] = order;
       await save(key, existing);
-      // Update customer DB
+      // 更新歷史訂購人清單（email 為唯一 key，name/phone 有異動則更新）
       const custs = await load("customers")||{};
-      const ek = form.email.toLowerCase();
       custs[ek] = {
-        name:form.ordererName, email:ek, phone:form.phone,
-        lineId:form.lineId, relation:form.relation,
+        name:    form.ordererName,
+        email:   ek,
+        phone:   form.phone,
+        relation:form.relation,
+        lastRecipientName:    form.recipientName,
+        lastRecipientAddress: form.recipientAddress,
+        lastRecipientPhone:   form.recipientPhone,
         lastOrder:`${settings.year}/${settings.month}`,
         orderCount:(custs[ek]?.orderCount||0)+1,
+        firstOrderAt: custs[ek]?.firstOrderAt||new Date().toLocaleString("zh-TW"),
       };
       await save("customers",custs);
       // 自動寄出訂購確認信
       const emailContent = genConfirmEmail(order,cats);
       sendEmail({
-        to: form.email,
+        to: ek,
         subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂購確認 — ${form.ordererName}`,
         body: emailContent,
       });
       setSubmitting(false);
       onOrderSuccess(order, emailContent);
       setCart({});
-      setForm({ordererName:"",email:"",lineId:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:"",note:""});
+      setForm({email:"",emailConfirm:"",ordererName:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:""});
+      setEmailLookupDone(false);
+      setEmailChecked(false);
     } catch(err) {
       console.error("Submit error:", err);
       alert("送出時發生錯誤，請再試一次。\n" + err.message);
@@ -434,18 +475,31 @@ function ShopView({settings,cats,onOrderSuccess}) {
         {/* Order Form */}
         <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,marginBottom:14,color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📋 訂購人資訊</div>
+
+          {/* Email 先填，查詢歷史紀錄 */}
+          <Field label="Email" required error={errors.email}>
+            <TextInput value={form.email} onChange={v=>{setF("email",v);setEmailLookupDone(false);setEmailChecked(false);setErrors(p=>({...p,email:null,emailConfirm:null}));}} type="email" placeholder="請先輸入 Email"
+              onBlur={handleEmailBlur} />
+          </Field>
+          {lookingUp&&<div style={{fontSize:"0.78rem",color:C.muted,marginTop:-8,marginBottom:10}}>🔍 查詢中…</div>}
+          {emailChecked&&emailLookupDone&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:7,padding:"7px 11px",fontSize:"0.78rem",color:C.green,marginTop:-8,marginBottom:10}}>✅ 找到歷史紀錄，已自動帶入資料</div>}
+          {emailChecked&&!emailLookupDone&&form.email&&/\S+@\S+\.\S+/.test(form.email)&&(
+            <Field label="再次確認 Email" required error={errors.emailConfirm}>
+              <TextInput value={form.emailConfirm} onChange={v=>{setF("emailConfirm",v);setErrors(p=>({...p,emailConfirm:null}));}} type="email" placeholder="請再輸入一次 Email 確認" />
+            </Field>
+          )}
+
           <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>setF("ordererName",v)} placeholder="姓名" /></Field>
-          <Field label="Email" required error={errors.email}><TextInput value={form.email} onChange={v=>setF("email",v)} type="email" placeholder="用於查詢/修改訂單" /></Field>
           <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v=>setF("phone",v)} type="tel" placeholder="0912-345-678" /></Field>
-          <Field label="LINE ID"><TextInput value={form.lineId} onChange={v=>setF("lineId",v)} placeholder="選填" /></Field>
           <Field label="與我的關係" required error={errors.relation}>
             <SelInput value={form.relation} onChange={v=>setF("relation",v)} options={["EMBA師長","EMBA同學","好友","其他"]} />
           </Field>
+
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,margin:"14px 0 10px",color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📦 收件人資訊</div>
           <Field label="收件人姓名" required error={errors.recipientName}><TextInput value={form.recipientName} onChange={v=>setF("recipientName",v)} placeholder="收件人姓名" /></Field>
           <Field label="收件地址" required error={errors.recipientAddress}><TextInput value={form.recipientAddress} onChange={v=>setF("recipientAddress",v)} placeholder="縣市 + 詳細地址" /></Field>
           <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v=>setF("recipientPhone",v)} type="tel" placeholder="0912-345-678" /></Field>
-          <Field label="備註"><TextArea value={form.note} onChange={v=>setF("note",v)} placeholder="其他需求…" rows={2}/></Field>
+
           <Btn onClick={submit} disabled={submitting} full color={C.green} style={{marginTop:4,padding:"13px"}}>
             {submitting?"處理中…":"送出訂單 ✉️"}
           </Btn>
