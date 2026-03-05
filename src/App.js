@@ -6,36 +6,51 @@ const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
-// EmailJS 設定（填入你的 Service ID / Template ID / Public Key）
-const EJS = { serviceId:"", templateId:"", publicKey:"" };
 
-// ── EMAIL SENDER ──────────────────────────────────────────────────────────────
+// ── STORAGE（透過 Google Apps Script 存入 Google Sheets）──────────────────
+async function load(key) {
+  try {
+    const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
+    const res = await fetch(url, { redirect: "follow" });
+    const json = await res.json();
+    if (json.success && json.value) return JSON.parse(json.value);
+    return null;
+  } catch(e) {
+    console.error("load error:", key, e);
+    // fallback 到 localStorage（離線或開發環境）
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
+  }
+}
+
+async function save(key, val) {
+  const jsonStr = JSON.stringify(val);
+  // 同步寫入 localStorage 當快取
+  try { localStorage.setItem(key, jsonStr); } catch {}
+  // 非同步寫入 Google Sheets
+  try {
+    const params = new URLSearchParams();
+    params.append("action", "set");
+    params.append("key", key);
+    params.append("value", jsonStr);
+    fetch(GAS_URL, { method: "POST", body: params, redirect: "follow" })
+      .catch(e => console.error("save error:", key, e));
+  } catch(e) { console.error("save error:", key, e); }
+}
+
+// ── EMAIL（透過 Apps Script 用 Gmail 寄出）────────────────────────────────
 async function sendEmail({ to, subject, body }) {
-  // 若 EmailJS 已設定則使用，否則 fallback 到 GAS
-  if(EJS.serviceId && EJS.templateId && EJS.publicKey) {
-    try {
-      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          service_id:  EJS.serviceId,
-          template_id: EJS.templateId,
-          user_id:     EJS.publicKey,
-          template_params: { to_email:to, subject, message:body },
-        }),
-      });
-      return res.ok;
-    } catch(e){ console.error("EmailJS error:",e); return false; }
-  } else {
-    // GAS fallback
-    try {
-      const params = new URLSearchParams();
-      params.append("to", to);
-      params.append("subject", subject);
-      params.append("body", body);
-      await fetch(GAS_URL, { method:"POST", mode:"no-cors", body:params });
-      return true;
-    } catch(e){ console.error("GAS email error:",e); return false; }
+  try {
+    const params = new URLSearchParams();
+    params.append("action", "sendEmail");
+    params.append("to", to);
+    params.append("subject", subject);
+    params.append("body", body);
+    const res = await fetch(GAS_URL, { method: "POST", body: params, redirect: "follow" });
+    const json = await res.json();
+    return json.success === true;
+  } catch(e) {
+    console.error("sendEmail error:", e);
+    return false;
   }
 }
 
@@ -125,14 +140,6 @@ function flatProducts(cats) {
   return m;
 }
 
-// ── STORAGE ───────────────────────────────────────────────────────────────────
-async function load(key) {
-  try { const r = await window.storage.get(key, true); return r ? JSON.parse(r.value) : null; }
-  catch { return null; }
-}
-async function save(key, val) {
-  try { await window.storage.set(key, JSON.stringify(val), true); } catch {}
-}
 
 // ── EMAIL TEMPLATES ───────────────────────────────────────────────────────────
 function genConfirmEmail(order, cats) {
