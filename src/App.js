@@ -6,24 +6,36 @@ const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
+// EmailJS 設定（填入你的 Service ID / Template ID / Public Key）
+const EJS = { serviceId:"", templateId:"", publicKey:"" };
 
 // ── EMAIL SENDER ──────────────────────────────────────────────────────────────
 async function sendEmail({ to, subject, body }) {
-  try {
-    // Use URLSearchParams so no-cors fetch works with GAS
-    const params = new URLSearchParams();
-    params.append("to", to);
-    params.append("subject", subject);
-    params.append("body", body);
-    await fetch(GAS_URL, {
-      method: "POST",
-      mode: "no-cors",
-      body: params,
-    });
-    return true;
-  } catch (e) {
-    console.error("Email error:", e);
-    return false;
+  // 若 EmailJS 已設定則使用，否則 fallback 到 GAS
+  if(EJS.serviceId && EJS.templateId && EJS.publicKey) {
+    try {
+      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          service_id:  EJS.serviceId,
+          template_id: EJS.templateId,
+          user_id:     EJS.publicKey,
+          template_params: { to_email:to, subject, message:body },
+        }),
+      });
+      return res.ok;
+    } catch(e){ console.error("EmailJS error:",e); return false; }
+  } else {
+    // GAS fallback
+    try {
+      const params = new URLSearchParams();
+      params.append("to", to);
+      params.append("subject", subject);
+      params.append("body", body);
+      await fetch(GAS_URL, { method:"POST", mode:"no-cors", body:params });
+      return true;
+    } catch(e){ console.error("GAS email error:",e); return false; }
   }
 }
 
@@ -1194,21 +1206,43 @@ function NewMonthTab({settings,setSettings}) {
   const [month,setMonth]=useState(settings.month+1>12?1:settings.month+1);
   const [confirm,setConfirm]=useState(false);
   const [done,setDone]=useState(false);
+  const [checking,setChecking]=useState(false);
+  const [blockReason,setBlockReason]=useState("");
+
+  // 檢查目前月份是否有未結單訂單
+  const checkAndConfirm=async()=>{
+    setChecking(true);
+    setBlockReason("");
+    const curKey=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const curOrders=await load(curKey)||{};
+    const pendingList=Object.values(curOrders).filter(o=>o.status!=="handled");
+    setChecking(false);
+    if(settings.isOpen && pendingList.length>0){
+      setBlockReason(`目前 ${settings.year}年${settings.month}月 還有 ${pendingList.length} 筆訂單未處理，請先結單後再開啟新月份。`);
+      return;
+    }
+    setConfirm(true);
+  };
 
   const start=async()=>{
-    const s={...settings,year,month,isOpen:true};
-    await save("settings",s);setSettings(s);setConfirm(false);setDone(true);
+    const s={...settings,year:Number(year),month:Number(month),isOpen:true};
+    await save("settings",s);
+    setSettings(s);
+    setConfirm(false);
+    setDone(true);
+    setBlockReason("");
   };
 
   return (
     <div style={{maxWidth:440}}>
       {confirm&&<ConfirmModal msg={`開始 ${year}年${month}月 的團購？`} onOk={start} onCancel={()=>setConfirm(false)}/>}
       <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>🗓 開始新月份團購</div>
-      {done&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ 已開始 {year}年{month}月的團購！</div>}
+      {done&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ 已開始 {year}年{month}月的團購！首頁已切換。</div>}
+      {blockReason&&<div style={{background:"#fff5f5",border:`1px solid #feb2b2`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.red,marginBottom:14}}>⚠️ {blockReason}</div>}
       <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:14,padding:20}}>
-        <p style={{fontSize:"0.83rem",color:C.muted,marginBottom:16,lineHeight:1.7}}>
-          目前是 <strong>{settings.year}年{settings.month}月</strong>｜{settings.isOpen?"訂購中":"已結單"}<br/>
-          按下開始後，首頁將切換至新月份。歷史訂單仍可在「歷史訂單」查閱。
+        <p style={{fontSize:"0.83rem",color:C.muted,marginBottom:16,lineHeight:1.8}}>
+          目前是 <strong>{settings.year}年{settings.month}月</strong>｜{settings.isOpen?"🟢 訂購中":"🔴 已結單"}<br/>
+          <span style={{fontSize:"0.78rem"}}>⚠️ 若目前月份有未結單訂單，無法開啟新月份。<br/>可開啟過去月份（作為測試用）。</span>
         </p>
         <div style={{display:"flex",gap:12,marginBottom:16}}>
           <div style={{flex:1}}>
@@ -1222,7 +1256,9 @@ function NewMonthTab({settings,setSettings}) {
             </Field>
           </div>
         </div>
-        <Btn onClick={()=>setConfirm(true)} full color={C.green}>🚀 開始 {year}年{month}月的團購</Btn>
+        <Btn onClick={checkAndConfirm} disabled={checking} full color={C.green}>
+          {checking?"檢查中…":`🚀 開始 ${year}年${month}月的團購`}
+        </Btn>
       </div>
     </div>
   );
