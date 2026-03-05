@@ -11,30 +11,28 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcek
 async function load(key) {
   try {
     const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
-    const res = await fetch(url, { redirect: "follow" });
+    const res = await fetch(url);
     const json = await res.json();
     if (json.success && json.value) return JSON.parse(json.value);
     return null;
   } catch(e) {
-    console.error("load error:", key, e);
-    // fallback 到 localStorage（離線或開發環境）
+    console.warn("load fallback to localStorage:", key);
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
   }
 }
 
 async function save(key, val) {
   const jsonStr = JSON.stringify(val);
-  // 同步寫入 localStorage 當快取
+  // 同步寫入 localStorage 當快取（讓 UI 立即反應）
   try { localStorage.setItem(key, jsonStr); } catch {}
-  // 非同步寫入 Google Sheets
+  // 寫入 Google Sheets（no-cors 避免 redirect 把 POST 變 GET）
   try {
     const params = new URLSearchParams();
     params.append("action", "set");
     params.append("key", key);
     params.append("value", jsonStr);
-    fetch(GAS_URL, { method: "POST", body: params, redirect: "follow" })
-      .catch(e => console.error("save error:", key, e));
-  } catch(e) { console.error("save error:", key, e); }
+    await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
+  } catch(e) { console.error("save to Sheets error:", key, e); }
 }
 
 // ── EMAIL（透過 Apps Script 用 Gmail 寄出）────────────────────────────────
@@ -45,9 +43,8 @@ async function sendEmail({ to, subject, body }) {
     params.append("to", to);
     params.append("subject", subject);
     params.append("body", body);
-    const res = await fetch(GAS_URL, { method: "POST", body: params, redirect: "follow" });
-    const json = await res.json();
-    return json.success === true;
+    await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
+    return true;
   } catch(e) {
     console.error("sendEmail error:", e);
     return false;
