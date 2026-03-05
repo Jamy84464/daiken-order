@@ -758,7 +758,21 @@ function BulletinTab({settings,setSettings}) {
 
 function ProductsTab({cats,setCats}) {
   const [reloading,setReloading]=useState(false);
+  const [exporting,setExporting]=useState(false);
   const [reloadMsg,setReloadMsg]=useState("");
+
+  const exportToSheet=async()=>{
+    setExporting(true);setReloadMsg("");
+    try {
+      const params=new URLSearchParams();
+      params.append("action","set");
+      params.append("key","cats");
+      params.append("value",JSON.stringify(cats));
+      await fetch(GAS_URL,{method:"POST",mode:"no-cors",body:params});
+      setReloadMsg("✅ 已匯出到試算表！請到 Google Sheets 確認「產品目錄」工作表。");
+    } catch(e){ setReloadMsg("❌ 匯出失敗，請確認 Apps Script 已部署"); }
+    setExporting(false);
+  };
 
   const toggleOOS=async(catKey,id)=>{
     const updated=cats.map(c=>c.key===catKey?{...c,products:c.products.map(p=>p.id===id?{...p,outOfStock:!p.outOfStock}:p)}:c);
@@ -802,8 +816,11 @@ function ProductsTab({cats,setCats}) {
           </code>
         </p>
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          <Btn onClick={reloadFromSheet} disabled={reloading} color={C.green} small>
+          <Btn onClick={reloadFromSheet} disabled={reloading||exporting} color={C.green} small>
             {reloading?"載入中…":"🔄 從試算表重新載入產品"}
+          </Btn>
+          <Btn onClick={exportToSheet} disabled={reloading||exporting} color={C.gold} outline small>
+            {exporting?"匯出中…":"📤 將目前產品匯出到試算表"}
           </Btn>
           {reloadMsg&&<span style={{fontSize:"0.8rem",color:reloadMsg.startsWith("✅")?C.gl:C.red}}>{reloadMsg}</span>}
         </div>
