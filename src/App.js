@@ -269,16 +269,12 @@ function EmailModal({title,content,onClose}) {
           <button onClick={onClose} style={{background:"none",border:"none",color:C.white,cursor:"pointer",fontSize:"1.2rem"}}>✕</button>
         </div>
         <div style={{padding:20}}>
-          <p style={{fontSize:"0.8rem",color:C.muted,marginBottom:10,lineHeight:1.7}}>
-            點擊下方文字區域可快速全選，複製後手動發送給訂購者。
-          </p>
           <textarea readOnly value={content} rows={16}
             onFocus={e=>e.target.select()}
             style={{width:"100%",border:`1.5px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:"0.8rem",fontFamily:"monospace",background:"#f8f8f5",resize:"vertical",outline:"none",lineHeight:1.8}}
           />
-          <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center"}}>
+          <div style={{marginTop:12}}>
             <Btn onClick={onClose} outline color={C.muted} small>關閉</Btn>
-            <span style={{fontSize:"0.73rem",color:C.muted}}>或整合 EmailJS 可自動寄出</span>
           </div>
         </div>
       </div>
@@ -401,7 +397,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
         body: emailContent,
       });
       setSubmitting(false);
-      onOrderSuccess(order, emailContent);
+      onOrderSuccess(order);
       setCart({});
       setForm({email:"",emailConfirm:"",ordererName:"",phone:"",relation:"",recipientName:"",recipientAddress:"",recipientPhone:""});
       setEmailLookupDone(false);
@@ -979,14 +975,24 @@ function CloseoutTab({settings,setSettings,cats}) {
     setConfirm(false);setDone(true);
   };
 
-  // Generate shipping table TSV
+  // 產生結單表 TSV（新格式）
   const genTSV=()=>{
-    const header="商品名稱\t數量(盒)\t總金額\t收件人姓名\t收件人電話\t收件人住址\t備註\t訂購人姓名";
+    const header="商品名稱\t數量(盒)\t總金額(含運)\t\t收件人姓名\t收件人電話\t收件人住址\t備註\t訂購人姓名";
     const rows=[];
     Object.values(orders||{}).forEach(o=>{
       Object.entries(o.cart).filter(([,q])=>q>0).forEach(([id,q])=>{
         const p=fp[id];
-        if(p) rows.push([p.name,q,(p.price*q).toLocaleString(),o.recipientName,o.recipientPhone,o.recipientAddress,o.note||"",o.ordererName].join("\t"));
+        if(p) rows.push([
+          p.name,
+          q,
+          (p.price*q).toLocaleString(),
+          "",                    // 空白欄
+          o.recipientName,
+          o.recipientPhone,
+          o.recipientAddress,
+          "",                    // 備註（已移除欄位，留空）
+          o.ordererName
+        ].join("\t"));
       });
     });
     return header+"\n"+rows.join("\n");
@@ -1036,22 +1042,23 @@ function CloseoutTab({settings,setSettings,cats}) {
         <table style={{borderCollapse:"collapse",fontSize:"0.78rem",width:"100%",background:C.white,borderRadius:10,overflow:"hidden"}}>
           <thead>
             <tr style={{background:C.green,color:C.white}}>
-              {["商品名稱","數量","金額","收件人","電話","地址","備註","訂購人"].map(h=>(
-                <th key={h} style={{padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap"}}>{h}</th>
+              {["商品名稱","數量(盒)","總金額(含運)","","收件人姓名","收件人電話","收件人住址","備註","訂購人姓名"].map((h,i)=>(
+                <th key={i} style={{padding:"8px 10px",textAlign:"left",whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {list.length===0?<tr><td colSpan={8} style={{textAlign:"center",padding:20,color:C.muted}}>尚無訂單</td></tr>
+            {list.length===0?<tr><td colSpan={9} style={{textAlign:"center",padding:20,color:C.muted}}>尚無訂單</td></tr>
             :list.map(o=>Object.entries(o.cart).filter(([,q])=>q>0).map(([id,q])=>{const p=fp[id];return p&&(
               <tr key={o.email+id} style={{borderBottom:`1px solid ${C.border}`}}>
                 <td style={{padding:"7px 10px"}}>{p.name}</td>
                 <td style={{padding:"7px 10px",textAlign:"center"}}>{q}</td>
                 <td style={{padding:"7px 10px",fontWeight:600,color:C.green}}>NT${(p.price*q).toLocaleString()}</td>
+                <td style={{padding:"7px 10px"}}></td>
                 <td style={{padding:"7px 10px"}}>{o.recipientName}</td>
                 <td style={{padding:"7px 10px"}}>{o.recipientPhone}</td>
                 <td style={{padding:"7px 10px",maxWidth:180,wordBreak:"break-all"}}>{o.recipientAddress}</td>
-                <td style={{padding:"7px 10px",color:C.muted}}>{o.note||""}</td>
+                <td style={{padding:"7px 10px",color:C.muted}}></td>
                 <td style={{padding:"7px 10px"}}>{o.ordererName}</td>
               </tr>
             );}))
@@ -1297,9 +1304,8 @@ export default function App() {
     })();
   },[]);
 
-  const handleOrderSuccess=(order,emailContent)=>{
+  const handleOrderSuccess=(order)=>{
     setSuccessModal(order);
-    setEmailModal({title:"📧 訂購確認信（請複製後發給訂購者）",content:emailContent});
   };
 
   if(!settings) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:C.muted}}>載入中…</div>;
@@ -1323,8 +1329,7 @@ export default function App() {
               確認信將寄至 <strong>{successModal.email}</strong>
             </div>
             <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
-              <Btn onClick={()=>{setSuccessModal(null);setEmailModal({title:"📧 訂購確認信",content:genConfirmEmail(successModal,cats)});}} color={C.gl}>查看確認信內容</Btn>
-              <Btn onClick={()=>setSuccessModal(null)} outline color={C.muted}>關閉</Btn>
+              <Btn onClick={()=>setSuccessModal(null)} color={C.green}>關閉</Btn>
             </div>
           </div>
         </div>
