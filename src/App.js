@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.8.0";
+const VERSION = "v2.8.1";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -958,8 +958,8 @@ function BulletinTab({settings,setSettings}) {
         <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,marginBottom:12}}>🏦 匯款帳戶資訊</div>
         {["bankName","bankCode","accountName","account"].map(k=>(
           <Field key={k} label={k==="bankName"?"銀行名稱":k==="bankCode"?"銀行代碼":k==="accountName"?"戶名":"帳號"}>
-            <TextInput value={settings.bank?.[k]||DEFAULT_BANK[k]} onChange={v=>{
-              const s={...settings,bank:{...(settings.bank||DEFAULT_BANK),[k]:v}};
+            <TextInput value={{...DEFAULT_BANK,...(settings.bank||{})}[k]} onChange={v=>{
+              const s={...settings,bank:{...DEFAULT_BANK,...(settings.bank||{}),[k]:v}};
               save("settings",s);setSettings(s);
             }} />
           </Field>
@@ -1367,7 +1367,7 @@ function EmailsTab({settings,cats}) {
   const [sending,setSending]=useState({});
   const [sendingAll,setSendingAll]=useState(false);
   const fp=flatProducts(cats);
-  const bank=settings.bank||DEFAULT_BANK;
+  const bank={...DEFAULT_BANK,...(settings.bank||{})};
 
   useEffect(()=>{
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
