@@ -189,7 +189,7 @@ function emailWrap(title, content) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#f4f1ec;font-family:'Helvetica Neue',Arial,'Noto Sans TC',sans-serif;color:#1a1a1a">
 <div style="max-width:560px;margin:0 auto;padding:24px 16px">
   <div style="background:#2d6a4f;color:#fff;padding:18px 24px;border-radius:14px 14px 0 0;text-align:center">
-    <div style="font-size:18px;font-weight:700;letter-spacing:1px">🌿 大研生醫 × 團購專區</div>
+    <div style="font-size:18px;font-weight:700;letter-spacing:1px">大研生醫 × 團購專區</div>
     <div style="font-size:12px;opacity:.7;margin-top:4px">${title}</div>
   </div>
   <div style="background:#fff;padding:24px;border-radius:0 0 14px 14px;border:1px solid #e5e0d8;border-top:none">
@@ -236,14 +236,14 @@ function genConfirmEmail(order, cats) {
       <span style="font-size:22px;font-weight:700;color:#2d6a4f;margin-left:10px">NT$${order.total.toLocaleString()}</span>
     </div>
     <div style="background:#faf7f2;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px;line-height:2;color:#4a5568">
-      <div style="font-weight:600;margin-bottom:4px;color:#1a1a1a">📦 收件資訊</div>
+      <div style="font-weight:600;margin-bottom:4px;color:#1a1a1a">▸ 收件資訊</div>
       收件人：${order.recipientName}<br>
       電　話：${order.recipientPhone}<br>
       地　址：${order.recipientAddress}
     </div>
     <div style="font-size:13px;color:#6b7280;line-height:1.8;margin-top:16px">
       我們將於月底結單後與您聯繫確認付款。<br>如需修改訂單，請至訂購頁面以此 Email 登入修改。<br><br>
-      感謝您對大研生醫的支持，祝福您與家人身體健康！ 🙏
+      感謝您對大研生醫的支持，祝福您與家人身體健康！
     </div>`;
   return emailWrap("訂購確認", content);
 }
@@ -258,7 +258,7 @@ function genPaymentEmail(order, bank, cats) {
 
   const oosNote = oosItems.length>0
     ? `<div style="background:#fff5f5;border:1px solid #feb2b2;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:12px;color:#c0392b;line-height:1.7">
-        ⚠️ 以下品項目前缺貨，已從金額中扣除：<br>${oosItems.map(n=>"・"+n).join("<br>")}
+        ※ 以下品項目前缺貨，已從金額中扣除：<br>${oosItems.map(n=>"・"+n).join("<br>")}
        </div>` : "";
 
   const content = `
@@ -272,13 +272,13 @@ function genPaymentEmail(order, bank, cats) {
       <span style="font-size:22px;font-weight:700;color:#2d6a4f;margin-left:10px">NT$${actualTotal.toLocaleString()}</span>
     </div>
     <div style="background:#faf7f2;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px;line-height:2;color:#4a5568">
-      <div style="font-weight:600;margin-bottom:4px;color:#1a1a1a">📦 收件資訊</div>
+      <div style="font-weight:600;margin-bottom:4px;color:#1a1a1a">▸ 收件資訊</div>
       收件人：${order.recipientName}<br>
       電　話：${order.recipientPhone}<br>
       地　址：${order.recipientAddress}
     </div>
     <div style="background:#fffbeb;border:1.5px solid #f6ad55;border-radius:10px;padding:16px 18px;margin:16px 0">
-      <div style="font-weight:700;font-size:14px;color:#b7791f;margin-bottom:8px">🏦 匯款資訊</div>
+      <div style="font-weight:700;font-size:14px;color:#b7791f;margin-bottom:8px">▸ 匯款資訊</div>
       <div style="font-size:14px;line-height:2;color:#1a1a1a">
         銀行：${bank.bankName}（${bank.bankCode}）<br>
         帳號：<strong style="font-size:16px;letter-spacing:1px">${bank.account}</strong>
@@ -288,7 +288,7 @@ function genPaymentEmail(order, bank, cats) {
       </div>
     </div>
     <div style="font-size:13px;color:#6b7280;line-height:1.8;margin-top:16px">
-      感謝您對大研生醫的支持，祝福您與家人身體健康！ 🙏
+      感謝您對大研生醫的支持，祝福您與家人身體健康！
     </div>`;
   return emailWrap("匯款通知", content);
 }
@@ -300,7 +300,7 @@ function genNoticeEmail(name, noticeText) {
     </div>
     <div style="font-size:14px;line-height:2;color:#1a1a1a;padding:16px 0;white-space:pre-wrap">${noticeText.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
     <div style="font-size:13px;color:#6b7280;line-height:1.8;margin-top:16px">
-      如有疑問請與我聯繫，感謝您的支持！ 🙏
+      如有疑問請與我聯繫，感謝您的支持！
     </div>`;
   return emailWrap("特別通知", content);
 }
