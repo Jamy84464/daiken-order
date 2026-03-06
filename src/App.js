@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.7.1";
+const VERSION = "v2.8.0";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
-const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
+const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
 const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";
-
 
 // Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
 const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
@@ -251,7 +250,7 @@ function genConfirmEmail(order, cats) {
       地　址：${order.recipientAddress}
     </div>
     <div style="font-size:13px;color:#6b7280;line-height:1.8;margin-top:16px">
-      我們將於月底結單後與您聯繫確認付款。<br>如需修改訂單，請至訂購頁面以此 Email 登入修改。<br><br>
+      我們將於月底結單後與您聯繫確認付款。<br>如需修改訂單，請至 <a href="https://jamy84464.github.io/daiken-order/" style="color:#2d6a4f;font-weight:600">訂購頁面</a> 以此 Email 登入修改。<br><br>
       感謝您對大研生醫的支持，祝福您與家人身體健康！
     </div>`;
   return emailWrap("訂購確認", content);
@@ -272,7 +271,7 @@ function genPaymentEmail(order, bank, cats) {
 
   const content = `
     <div style="font-size:15px;line-height:1.8;margin-bottom:16px">
-      <strong>${order.ordererName}</strong> 學長/姐您好，以下是您的訂單與匯款資訊：
+      <strong>${order.ordererName}</strong> 您好，以下是您的訂單與匯款資訊：
     </div>
     ${table}
     ${oosNote}
@@ -290,6 +289,7 @@ function genPaymentEmail(order, bank, cats) {
       <div style="font-weight:700;font-size:14px;color:#b7791f;margin-bottom:8px">▸ 匯款資訊</div>
       <div style="font-size:14px;line-height:2;color:#1a1a1a">
         銀行：${bank.bankName}（${bank.bankCode}）<br>
+        戶名：${bank.accountName||""}<br>
         帳號：<strong style="font-size:16px;letter-spacing:1px">${bank.account}</strong>
       </div>
       <div style="font-size:12px;color:#b7791f;margin-top:8px;line-height:1.6">
@@ -704,7 +704,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
             if(recipientLinked.current) setF("recipientPhone",v);
           }} type="tel" placeholder="0912-345-678" /></Field>
           <Field label="與我的關係" required error={errors.relation}>
-            <SelInput value={form.relation} onChange={v=>setF("relation",v)} options={["EMBA師長","EMBA同學","好友","其他"]} />
+            <SelInput value={form.relation} onChange={v=>setF("relation",v)} options={["109A同學","109B同學","109C同學","EMBA學長姐","老師","朋友","其他"]} />
           </Field>
 
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,margin:"14px 0 10px",color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📦 收件人資訊</div>
@@ -956,8 +956,8 @@ function BulletinTab({settings,setSettings}) {
       </div>
       <div style={{marginTop:20,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
         <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,marginBottom:12}}>🏦 匯款帳戶資訊</div>
-        {["bankName","bankCode","account"].map(k=>(
-          <Field key={k} label={k==="bankName"?"銀行名稱":k==="bankCode"?"銀行代碼":"帳號"}>
+        {["bankName","bankCode","accountName","account"].map(k=>(
+          <Field key={k} label={k==="bankName"?"銀行名稱":k==="bankCode"?"銀行代碼":k==="accountName"?"戶名":"帳號"}>
             <TextInput value={settings.bank?.[k]||DEFAULT_BANK[k]} onChange={v=>{
               const s={...settings,bank:{...(settings.bank||DEFAULT_BANK),[k]:v}};
               save("settings",s);setSettings(s);
@@ -1674,7 +1674,7 @@ export default function App() {
           <div style={{maxWidth:1200,margin:"0 auto",padding:"13px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
             <div onClick={()=>setView("shop")} style={{cursor:"pointer"}}>
               <div className="serif" style={{fontSize:"1.1rem",fontWeight:700,letterSpacing:".04em"}}>🌿 大研生醫 × 團購專區</div>
-              <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>EMBA · 師長 · 好友 專屬 <span style={{opacity:.6,marginLeft:6}}>{VERSION}</span></div>
+              <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>台大EMBA · 師長 · 好友 專屬 <span style={{opacity:.6,marginLeft:6}}>{VERSION}</span></div>
             </div>
             <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
               {[["shop","🛒 訂購"],["myorder","🔍 查詢/修改訂單"],["admin","⚙️ 後台"]].map(([v,l])=>(
