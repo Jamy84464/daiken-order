@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const ADMIN_PW = "844844";
-const VERSION = "v2.2";
+const VERSION = "v2.3";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
@@ -542,13 +542,13 @@ function ShopView({settings,cats,onOrderSuccess}) {
       </div>
 
       {/* Sidebar: Cart + Form */}
-      <div ref={cartRef} style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,paddingBottom:isMobile&&cartItems.length>0?60:0,...(!isMobile&&{maxHeight:"calc(100vh - 88px)",overflowY:"auto"})}}>
-        {/* Cart */}
-        <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
+      <div ref={cartRef} style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,paddingBottom:isMobile&&cartItems.length>0?60:0,...(!isMobile&&{maxHeight:"calc(100vh - 88px)",overflow:"hidden"})}}>
+        {/* Cart — 永遠可見，不隨表單捲動 */}
+        <div style={{flexShrink:0,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
           <div style={{background:C.green,color:C.white,padding:"13px 17px",fontWeight:600,fontSize:"0.93rem"}}>
             🛒 購物車 {cartItems.length>0&&<span style={{background:"rgba(255,255,255,.2)",borderRadius:9,padding:"2px 8px",fontSize:"0.75rem",marginLeft:6}}>{cartItems.length} 種</span>}
           </div>
-          <div style={{padding:"10px 16px",maxHeight:220,overflowY:"auto"}}>
+          <div style={{padding:"10px 16px",maxHeight:180,overflowY:"auto"}}>
             {cartItems.length===0
               ? <div style={{textAlign:"center",color:C.muted,fontSize:"0.82rem",padding:"18px 0",lineHeight:2}}>尚未加入商品</div>
               : cartItems.map(([id,q])=>{const p=fp[id];return p&&(
@@ -570,8 +570,8 @@ function ShopView({settings,cats,onOrderSuccess}) {
           </div>
         </div>
 
-        {/* Order Form */}
-        <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
+        {/* Order Form — 超出高度時獨立捲動 */}
+        <div style={{flex:1,minHeight:0,overflowY:"auto",background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,marginBottom:14,color:C.text,paddingBottom:8,borderBottom:`2px solid ${C.gp}`}}>📋 訂購人資訊</div>
 
           {/* Email 先填，查詢歷史紀錄 */}
