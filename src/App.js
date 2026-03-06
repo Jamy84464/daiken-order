@@ -7,6 +7,7 @@ const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
+const WRITE_TOKEN = "daikenEMBA2026_changeMePlease"; // ⚠️ 需與 GAS 端一致
 
 // ── STORAGE（透過 Google Apps Script 存入 Google Sheets）──────────────────
 async function load(key) {
@@ -32,6 +33,7 @@ async function save(key, val) {
     params.append("action", "set");
     params.append("key", key);
     params.append("value", jsonStr);
+    params.append("token", WRITE_TOKEN);
     await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
   } catch(e) { console.error("save to Sheets error:", key, e); }
 }
@@ -44,6 +46,7 @@ async function sendEmail({ to, subject, body }) {
     params.append("to", to);
     params.append("subject", subject);
     params.append("body", body);
+    params.append("token", WRITE_TOKEN);
     await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
     return true;
   } catch(e) {
@@ -785,6 +788,7 @@ function ProductsTab({cats,setCats}) {
       params.append("action","set");
       params.append("key","cats");
       params.append("value",JSON.stringify(cats));
+      params.append("token", WRITE_TOKEN);
       await fetch(GAS_URL,{method:"POST",mode:"no-cors",body:params});
       setReloadMsg("✅ 已匯出到試算表！請到 Google Sheets 確認「產品目錄」工作表。");
     } catch(e){ setReloadMsg("❌ 匯出失敗，請確認 Apps Script 已部署"); }
