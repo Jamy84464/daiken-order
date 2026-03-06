@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.7.0";
+const VERSION = "v2.7.1";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
 const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";
+
 
 // Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
 const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
@@ -679,7 +680,12 @@ function ShopView({settings,cats,onOrderSuccess}) {
             <TextInput value={form.email} onChange={v=>{setF("email",v);setEmailLookupDone(false);setEmailChecked(false);setErrors(p=>({...p,email:null,emailConfirm:null}));}} type="email" placeholder="請先輸入 Email"
               onBlur={handleEmailBlur} />
           </Field>
-          {lookingUp&&<div style={{fontSize:"0.78rem",color:C.muted,marginTop:-8,marginBottom:10}}>🔍 查詢中…</div>}
+          {lookingUp&&(
+            <div style={{background:"rgba(250,247,242,.85)",border:`1.5px solid ${C.border}`,borderRadius:10,padding:"20px 16px",textAlign:"center",margin:"8px 0"}}>
+              <div style={{fontSize:"1.1rem",marginBottom:6}}>🔍</div>
+              <div style={{fontSize:"0.82rem",color:C.muted}}>查詢歷史訂購紀錄中，請稍候…</div>
+            </div>
+          )}
           {emailChecked&&emailLookupDone&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:7,padding:"7px 11px",fontSize:"0.78rem",color:C.green,marginTop:-8,marginBottom:10}}>✅ 找到歷史紀錄，已自動帶入資料</div>}
           {emailChecked&&!emailLookupDone&&form.email&&isValidEmail(form.email)&&(
             <Field label="再次確認 Email" required error={errors.emailConfirm}>
@@ -687,6 +693,8 @@ function ShopView({settings,cats,onOrderSuccess}) {
             </Field>
           )}
 
+          {/* 查詢中遮蔽其餘欄位 */}
+          <div style={{position:"relative",...(lookingUp&&{pointerEvents:"none",opacity:0.35,filter:"blur(1px)"})}}>
           <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v=>{
             setF("ordererName",v);
             if(recipientLinked.current) setF("recipientName",v);
@@ -704,9 +712,10 @@ function ShopView({settings,cats,onOrderSuccess}) {
           <Field label="收件地址" required error={errors.recipientAddress}><TextInput value={form.recipientAddress} onChange={v=>setF("recipientAddress",v)} placeholder="縣市 + 詳細地址" /></Field>
           <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v=>{recipientLinked.current=false; setF("recipientPhone",v);}} type="tel" placeholder="0912-345-678" /></Field>
 
-          <Btn onClick={submit} disabled={submitting} full color={C.green} style={{marginTop:4,padding:"13px"}}>
+          <Btn onClick={submit} disabled={submitting||lookingUp} full color={C.green} style={{marginTop:4,padding:"13px"}}>
             {submitting?"處理中…":"送出訂單 ✉️"}
           </Btn>
+          </div>
         </div>
       </div>
     </div>
