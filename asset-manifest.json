@@ -1,15 +1,15 @@
 {
   "files": {
     "main.css": "/daiken-order/static/css/main.e6c13ad2.css",
-    "main.js": "/daiken-order/static/js/main.dc51004f.js",
+    "main.js": "/daiken-order/static/js/main.df1bcf5a.js",
     "static/js/453.07dc80c1.chunk.js": "/daiken-order/static/js/453.07dc80c1.chunk.js",
     "index.html": "/daiken-order/index.html",
     "main.e6c13ad2.css.map": "/daiken-order/static/css/main.e6c13ad2.css.map",
-    "main.dc51004f.js.map": "/daiken-order/static/js/main.dc51004f.js.map",
+    "main.df1bcf5a.js.map": "/daiken-order/static/js/main.df1bcf5a.js.map",
     "453.07dc80c1.chunk.js.map": "/daiken-order/static/js/453.07dc80c1.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e6c13ad2.css",
-    "static/js/main.dc51004f.js"
+    "static/js/main.df1bcf5a.js"
   ]
 }
