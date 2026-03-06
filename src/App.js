@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const ADMIN_PW = "844844";
-const VERSION = "v2.3";
+const VERSION = "v2.4";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
@@ -19,20 +18,39 @@ const _saveVersions = {};
 function onSyncWarning(fn) { _syncListeners.push(fn); return () => { _syncListeners = _syncListeners.filter(f=>f!==fn); }; }
 function _notifySyncWarning(key) { _syncListeners.forEach(fn=>fn(key)); }
 
+// Optimistic Locking：記錄每個 key 載入時的 _v 版本號
+const _loadedVersions = {};
+
 async function load(key) {
   try {
     const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
     const res = await fetch(url);
     const json = await res.json();
-    if (json.success && json.value) return JSON.parse(json.value);
+    if (json.success && json.value) {
+      const parsed = JSON.parse(json.value);
+      if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
+      return parsed;
+    }
     return null;
   } catch(e) {
     console.warn("load fallback to localStorage:", key);
-    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch { return null; }
+    try {
+      const v = localStorage.getItem(key);
+      if (!v) return null;
+      const parsed = JSON.parse(v);
+      if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
+      return parsed;
+    } catch { return null; }
   }
 }
 
 async function save(key, val) {
+  // 對訂單和顧客資料加入版本號（Optimistic Locking）
+  const needsVersion = key.startsWith("orders_") || key === "customers";
+  if (needsVersion && val && typeof val === "object") {
+    val._v = Date.now();
+  }
+
   const jsonStr = JSON.stringify(val);
   const version = (_saveVersions[key] || 0) + 1;
   _saveVersions[key] = version;
@@ -45,11 +63,20 @@ async function save(key, val) {
     params.append("key", key);
     params.append("value", jsonStr);
     params.append("token", WRITE_TOKEN);
+    if (needsVersion) {
+      params.append("baseV", String(_loadedVersions[key] || "0"));
+    }
     await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
   } catch(e) { console.error("save to Sheets error:", key, e); }
+
+  // 更新本地版本記錄
+  if (needsVersion && val && val._v) {
+    _loadedVersions[key] = val._v;
+  }
+
   // Read-back 驗證（延遲 4 秒後讀回比對，只驗證最近一次 save）
   setTimeout(async () => {
-    if (_saveVersions[key] !== version) return; // 有更新的 save，跳過
+    if (_saveVersions[key] !== version) return;
     try {
       const remote = await load(key);
       const remoteStr = JSON.stringify(remote);
@@ -760,16 +787,29 @@ function MyOrderView({settings,cats}) {
 function AdminView({settings,setSettings,cats,setCats}) {
   const [authed,setAuthed]=useState(false);
   const [pw,setPw]=useState("");
+  const [loggingIn,setLoggingIn]=useState(false);
   const [tab,setTab]=useState("orders");
 
-  const login=()=>{if(pw===ADMIN_PW){setAuthed(true);}else{alert("密碼錯誤");}};
+  const login=async()=>{
+    if(!pw.trim()) return;
+    setLoggingIn(true);
+    try {
+      const res=await fetch(`${GAS_URL}?action=verifyAdmin&pw=${encodeURIComponent(pw)}`);
+      const json=await res.json();
+      if(json.success && json.authed){setAuthed(true);}
+      else{alert("密碼錯誤");}
+    } catch(e){
+      alert("驗證失敗，請確認網路連線");
+    }
+    setLoggingIn(false);
+  };
 
   if(!authed) return (
     <div style={{maxWidth:340,margin:"40px auto"}}>
       <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:28,boxShadow:"0 4px 20px rgba(0,0,0,.07)"}}>
         <div className="serif" style={{fontSize:"1.1rem",fontWeight:700,marginBottom:20,textAlign:"center"}}>🔐 管理員登入</div>
         <Field label="密碼" required><TextInput value={pw} onChange={setPw} type="password" placeholder="請輸入密碼" /></Field>
-        <Btn onClick={login} full>登入</Btn>
+        <Btn onClick={login} disabled={loggingIn} full>{loggingIn?"驗證中…":"登入"}</Btn>
       </div>
     </div>
   );
