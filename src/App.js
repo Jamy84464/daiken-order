@@ -2,12 +2,15 @@ import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const ADMIN_PW = "844844";
-const VERSION = "v1.9";
+const VERSION = "v2.1";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
-const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";// ⚠️ 需與 GAS 端一致
+const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";
+
+// Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
+const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
 
 // ── STORAGE（透過 Google Apps Script 存入 Google Sheets）──────────────────
 // 同步狀態通知（供 SyncStatus 元件使用）
@@ -59,7 +62,9 @@ async function save(key, val) {
 }
 
 // ── EMAIL（透過 Apps Script 用 Gmail 寄出）────────────────────────────────
-async function sendEmail({ to, subject, body }) {
+// ⚠️ 因 no-cors 限制，回傳值僅代表「請求已送出」，不代表信件實際寄送成功
+//    建議寄送後至 Gmail「已傳送」信件匣確認
+async function requestSendEmail({ to, subject, body }) {
   try {
     const params = new URLSearchParams();
     params.append("action", "sendEmail");
@@ -68,25 +73,12 @@ async function sendEmail({ to, subject, body }) {
     params.append("body", body);
     params.append("token", WRITE_TOKEN);
     await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
-    return true;
+    return "sent"; // 請求已送出（不保證實際寄達）
   } catch(e) {
-    console.error("sendEmail error:", e);
-    return false;
+    console.error("requestSendEmail error:", e);
+    return "error"; // 網路錯誤，請求未送出
   }
 }
-
-const PRODUCT_URLS = {
-  "倍力他命BELINAMIN膜衣錠": BASE_URL,
-  "納豆紅麴Q10膠囊": BASE_URL,
-  "德國頂級魚油": BASE_URL,
-  "德國頂級魚油(旗艦加大120粒)": BASE_URL,
-  "視易適葉黃素": BASE_URL,
-  "精氣神瑪卡粉包": BASE_URL,
-  "精氣神瑪卡粉包(超值加大30包)": BASE_URL,
-  "100%黑瑪卡透納葉錠": BASE_URL,
-  "好攝力南瓜籽黑麥花膠囊": BASE_URL,
-  "台灣極品靈芝多醣體膠囊": BASE_URL,
-};
 
 const D = "https://www.daikenshop.com/product.php?code=";
 const INIT_CATS = [
@@ -397,7 +389,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
   // 輸入 email 後離開欄位時，查詢歷史訂購人清單
   const handleEmailBlur=async()=>{
     const ek=form.email.trim().toLowerCase();
-    if(!ek||!/\S+@\S+\.\S+/.test(ek)){setEmailChecked(true);return;}
+    if(!ek||!isValidEmail(ek)){setEmailChecked(true);return;}
     setLookingUp(true);
     const custs=await load("customers")||{};
     const found=custs[ek];
@@ -422,7 +414,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
 
   const validate=()=>{
     const e={};
-    if(!form.email||!/\S+@\S+\.\S+/.test(form.email.trim())) e.email="請填寫有效 Email";
+    if(!form.email||!isValidEmail(form.email.trim())) e.email="請填寫有效 Email";
     if(!emailLookupDone && form.email.trim().toLowerCase()!==form.emailConfirm.trim().toLowerCase()) e.emailConfirm="兩次 Email 不一致";
     if(!form.ordererName) e.ordererName="必填";
     if(!form.phone) e.phone="必填";
@@ -470,7 +462,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
       await save("customers",custs);
       // 自動寄出訂購確認信
       const emailContent = genConfirmEmail(order,cats);
-      sendEmail({
+      requestSendEmail({
         to: ek,
         subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂購確認 — ${form.ordererName}`,
         body: emailContent,
@@ -550,7 +542,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
       </div>
 
       {/* Sidebar: Cart + Form */}
-      <div ref={cartRef} style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,paddingBottom:isMobile&&cartItems.length>0?60:0}}>
+      <div ref={cartRef} style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,paddingBottom:isMobile&&cartItems.length>0?60:0,...(!isMobile&&{maxHeight:"calc(100vh - 88px)",overflowY:"auto"})}}>
         {/* Cart */}
         <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
           <div style={{background:C.green,color:C.white,padding:"13px 17px",fontWeight:600,fontSize:"0.93rem"}}>
@@ -589,7 +581,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
           </Field>
           {lookingUp&&<div style={{fontSize:"0.78rem",color:C.muted,marginTop:-8,marginBottom:10}}>🔍 查詢中…</div>}
           {emailChecked&&emailLookupDone&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:7,padding:"7px 11px",fontSize:"0.78rem",color:C.green,marginTop:-8,marginBottom:10}}>✅ 找到歷史紀錄，已自動帶入資料</div>}
-          {emailChecked&&!emailLookupDone&&form.email&&/\S+@\S+\.\S+/.test(form.email)&&(
+          {emailChecked&&!emailLookupDone&&form.email&&isValidEmail(form.email)&&(
             <Field label="再次確認 Email" required error={errors.emailConfirm}>
               <TextInput value={form.emailConfirm} onChange={v=>{setF("emailConfirm",v);setErrors(p=>({...p,emailConfirm:null}));}} type="email" placeholder="請再輸入一次 Email 確認" />
             </Field>
@@ -1263,8 +1255,8 @@ function EmailsTab({settings,cats}) {
 
   const sendPayment=async(o)=>{
     markSending(o.email+"_pay","sending");
-    const ok=await sendEmail({ to:o.email, subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`, body:genPaymentEmail(o,bank,cats) });
-    markSending(o.email+"_pay", ok?"sent":"error");
+    const result=await requestSendEmail({ to:o.email, subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`, body:genPaymentEmail(o,bank,cats) });
+    markSending(o.email+"_pay", result);
   };
 
   const sendAllPayment=async()=>{
@@ -1272,8 +1264,8 @@ function EmailsTab({settings,cats}) {
     setSendingAll(true);
     for(const o of list){
       markSending(o.email+"_pay","sending");
-      const ok=await sendEmail({ to:o.email, subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`, body:genPaymentEmail(o,bank,cats) });
-      markSending(o.email+"_pay", ok?"sent":"error");
+      const result=await requestSendEmail({ to:o.email, subject:`【大研生醫團購】${settings.year}年${settings.month}月 匯款通知`, body:genPaymentEmail(o,bank,cats) });
+      markSending(o.email+"_pay", result);
     }
     setSendingAll(false);
   };
@@ -1283,8 +1275,8 @@ function EmailsTab({settings,cats}) {
     const key=target.email+"_notice";
     markSending(key,"sending");
     const body=`${target.name||target.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
-    const ok=await sendEmail({ to:target.email, subject:`【大研生醫團購】特別通知`, body });
-    markSending(key, ok?"sent":"error");
+    const result=await requestSendEmail({ to:target.email, subject:`【大研生醫團購】特別通知`, body });
+    markSending(key, result);
   };
 
   const sendAllNotice=async(targets)=>{
@@ -1295,8 +1287,8 @@ function EmailsTab({settings,cats}) {
       const key=t.email+"_notice";
       markSending(key,"sending");
       const body=`${t.name||t.ordererName} 您好，\n\n${noticeText}\n\n如有疑問請與我聯繫，感謝您的支持！`;
-      const ok=await sendEmail({ to:t.email, subject:`【大研生醫團購】特別通知`, body });
-      markSending(key, ok?"sent":"error");
+      const result=await requestSendEmail({ to:t.email, subject:`【大研生醫團購】特別通知`, body });
+      markSending(key, result);
     }
     setSendingAll(false);
   };
@@ -1475,6 +1467,19 @@ export default function App() {
   const [emailModal,setEmailModal]=useState(null);
 
   useEffect(()=>{
+    // ── Cache-first：先從 localStorage 立即渲染，再背景從 GAS 更新 ──
+    // Settings
+    try {
+      const cachedSettings = localStorage.getItem("settings");
+      if (cachedSettings) setSettings(JSON.parse(cachedSettings));
+    } catch {}
+    // Cats
+    try {
+      const cachedCats = localStorage.getItem("cats");
+      if (cachedCats) setCats(JSON.parse(cachedCats));
+    } catch {}
+
+    // 背景從 GAS 載入最新資料
     (async()=>{
       // 載入設定
       let s=await load("settings");
@@ -1484,6 +1489,7 @@ export default function App() {
         await save("settings",s);
       }
       setSettings(s);
+      try { localStorage.setItem("settings", JSON.stringify(s)); } catch{}
 
       // 從 Google Sheets「產品目錄」載入產品（優先）
       let loadedCats = null;
@@ -1496,14 +1502,13 @@ export default function App() {
         }
       } catch(e){ console.warn("getCats from sheet failed, using cache"); }
 
-      // fallback：從 localStorage 快取或 INIT_CATS
+      // fallback：從 GAS app_data 或 INIT_CATS
       if(!loadedCats){
         const savedCats=await load("cats");
         loadedCats = savedCats || INIT_CATS;
       }
 
       setCats(loadedCats);
-      // 同步到 localStorage 快取
       try { localStorage.setItem("cats", JSON.stringify(loadedCats)); } catch{}
     })();
   },[]);
