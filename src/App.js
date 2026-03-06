@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const ADMIN_PW = "844844";
-const VERSION = "v1.7";
+const VERSION = "v1.8";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
@@ -10,6 +10,12 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcek
 const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE"; // ⚠️ 需與 GAS 端一致
 
 // ── STORAGE（透過 Google Apps Script 存入 Google Sheets）──────────────────
+// 同步狀態通知（供 SyncStatus 元件使用）
+let _syncListeners = [];
+const _saveVersions = {};
+function onSyncWarning(fn) { _syncListeners.push(fn); return () => { _syncListeners = _syncListeners.filter(f=>f!==fn); }; }
+function _notifySyncWarning(key) { _syncListeners.forEach(fn=>fn(key)); }
+
 async function load(key) {
   try {
     const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
@@ -25,6 +31,8 @@ async function load(key) {
 
 async function save(key, val) {
   const jsonStr = JSON.stringify(val);
+  const version = (_saveVersions[key] || 0) + 1;
+  _saveVersions[key] = version;
   // 同步寫入 localStorage 當快取（讓 UI 立即反應）
   try { localStorage.setItem(key, jsonStr); } catch {}
   // 寫入 Google Sheets（no-cors 避免 redirect 把 POST 變 GET）
@@ -36,6 +44,18 @@ async function save(key, val) {
     params.append("token", WRITE_TOKEN);
     await fetch(GAS_URL, { method: "POST", mode: "no-cors", body: params });
   } catch(e) { console.error("save to Sheets error:", key, e); }
+  // Read-back 驗證（延遲 4 秒後讀回比對，只驗證最近一次 save）
+  setTimeout(async () => {
+    if (_saveVersions[key] !== version) return; // 有更新的 save，跳過
+    try {
+      const remote = await load(key);
+      const remoteStr = JSON.stringify(remote);
+      if (remoteStr !== jsonStr) {
+        console.warn(`sync verify failed for "${key}": local/remote mismatch`);
+        _notifySyncWarning(key);
+      }
+    } catch(e) { /* 驗證本身失敗，不處理 */ }
+  }, 4000);
 }
 
 // ── EMAIL（透過 Apps Script 用 Gmail 寄出）────────────────────────────────
@@ -271,6 +291,50 @@ const TextArea = ({value,onChange,rows=3,placeholder})=>(
     style={{...inp(),resize:"vertical"}} />
 );
 
+// ── RWD HOOK ─────────────────────────────────────────────────────────────────
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < breakpoint : false
+  );
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
+// ── SYNC STATUS（雲端同步失敗警告）──────────────────────────────────────────
+function SyncStatus() {
+  const [warnings, setWarnings] = useState([]);
+  useEffect(() => {
+    return onSyncWarning((key) => {
+      setWarnings(prev => {
+        if (prev.includes(key)) return prev;
+        return [...prev, key];
+      });
+    });
+  }, []);
+  if (warnings.length === 0) return null;
+  return (
+    <div style={{
+      position:"fixed",bottom:16,left:"50%",transform:"translateX(-50%)",
+      zIndex:3000,background:"#fff5f5",border:`1.5px solid ${C.red}`,
+      borderRadius:12,padding:"10px 18px",boxShadow:"0 4px 20px rgba(0,0,0,.15)",
+      maxWidth:420,width:"calc(100% - 32px)",fontSize:"0.82rem",lineHeight:1.7,
+    }}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+        <div>
+          <strong style={{color:C.red}}>⚠️ 雲端同步異常</strong><br/>
+          部分資料可能未成功寫入 Google Sheets，請稍後重新整理頁面確認。
+        </div>
+        <button onClick={()=>setWarnings([])}
+          style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"1.1rem",flexShrink:0}}>✕</button>
+      </div>
+    </div>
+  );
+}
+
 // Email Modal
 function EmailModal({title,content,onClose}) {
   return (
@@ -319,8 +383,9 @@ function ShopView({settings,cats,onOrderSuccess}) {
   const [emailLookupDone,setEmailLookupDone]=useState(false);
   const [emailChecked,setEmailChecked]=useState(false);
   const [lookingUp,setLookingUp]=useState(false);
-  // 追蹤收件人是否還與訂購人同步
   const recipientLinked = useRef(true);
+  const isMobile = useIsMobile();
+  const cartRef = useRef(null);
 
   const fp = flatProducts(cats);
   const cartItems = Object.entries(cart).filter(([,q])=>q>0);
@@ -428,7 +493,20 @@ function ShopView({settings,cats,onOrderSuccess}) {
     : cats.filter(c=>c.key===tab).map(c=>({...c,products:c.products.filter(p=>!p.hidden)}));
 
   return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:24,alignItems:"start"}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 330px",gap:isMobile?16:24,alignItems:"start"}}>
+      {/* Mobile: 浮動購物車摘要列 */}
+      {isMobile&&cartItems.length>0&&(
+        <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:200,background:C.green,color:C.white,padding:"10px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",boxShadow:"0 -3px 16px rgba(0,0,0,.2)"}}>
+          <div>
+            <span style={{fontSize:"0.82rem"}}>{cartItems.length} 種商品</span>
+            <span className="serif" style={{fontSize:"1.15rem",fontWeight:700,marginLeft:10}}>NT${total.toLocaleString()}</span>
+          </div>
+          <button onClick={()=>cartRef.current?.scrollIntoView({behavior:"smooth"})}
+            style={{background:"rgba(255,255,255,.2)",color:C.white,border:"1px solid rgba(255,255,255,.4)",borderRadius:8,padding:"7px 14px",fontSize:"0.82rem",cursor:"pointer",fontFamily:"'Noto Sans TC',sans-serif",fontWeight:600}}>
+            前往結帳 ▼
+          </button>
+        </div>
+      )}
       {/* Products */}
       <div>
         {errors.cart&&<div style={{background:"#fff5f5",border:`1px solid ${C.red}`,borderRadius:8,padding:"8px 14px",fontSize:"0.82rem",color:C.red,marginBottom:14}}>{errors.cart}</div>}
@@ -472,7 +550,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
       </div>
 
       {/* Sidebar: Cart + Form */}
-      <div style={{position:"sticky",top:72,display:"flex",flexDirection:"column",gap:14}}>
+      <div ref={cartRef} style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,paddingBottom:isMobile&&cartItems.length>0?60:0}}>
         {/* Cart */}
         <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
           <div style={{background:C.green,color:C.white,padding:"13px 17px",fontWeight:600,fontSize:"0.93rem"}}>
@@ -555,6 +633,7 @@ function MyOrderView({settings,cats}) {
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
   const fp=flatProducts(cats);
+  const isMobile=useIsMobile();
 
   const lookup=async()=>{
     if(!email.trim()){return;}
@@ -589,7 +668,7 @@ function MyOrderView({settings,cats}) {
   if(editMode) return (
     <div className="fu">
       <button onClick={()=>setEditMode(false)} style={{background:"none",border:"none",color:C.green,cursor:"pointer",fontSize:"0.85rem",marginBottom:14}}>← 取消修改</button>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 330px",gap:24,alignItems:"start"}}>
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 330px",gap:isMobile?16:24,alignItems:"start"}}>
         {/* mini product grid */}
         <div>
           {cats.map(cat=>{
@@ -619,7 +698,7 @@ function MyOrderView({settings,cats}) {
           })}
         </div>
         {/* Edit form */}
-        <div style={{position:"sticky",top:72,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
+        <div style={{position:isMobile?"static":"sticky",top:72,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,marginBottom:12}}>修改收件資訊</div>
           <Field label="收件人姓名" required><TextInput value={form.recipientName} onChange={v=>setForm(p=>({...p,recipientName:v}))} /></Field>
           <Field label="收件地址" required><TextInput value={form.recipientAddress} onChange={v=>setForm(p=>({...p,recipientAddress:v}))} /></Field>
@@ -892,21 +971,28 @@ function ProductsTab({cats,setCats}) {
 function OrdersTab({settings,cats}) {
   const [orders,setOrders]=useState(null);
   const [confirmDelete,setConfirmDelete]=useState(null);
+  const [busyOp,setBusyOp]=useState(null); // 正在操作的 email，防止連點競態
   const fp=flatProducts(cats);
   useEffect(()=>{
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     load(key).then(o=>setOrders(o||{}));
   },[settings]);
   const toggleStatus=async(email)=>{
+    if(busyOp) return;
+    setBusyOp(email);
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     const upd={...orders,[email]:{...orders[email],status:orders[email].status==="handled"?"pending":"handled"}};
     setOrders(upd);await save(key,upd);
+    setBusyOp(null);
   };
   const deleteOrder=async(email)=>{
+    if(busyOp) return;
+    setBusyOp(email);
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     const upd={...orders};
     delete upd[email];
     setOrders(upd);await save(key,upd);
+    setBusyOp(null);
     setConfirmDelete(null);
   };
   if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
@@ -936,10 +1022,12 @@ function OrdersTab({settings,cats}) {
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
                 <span className="serif" style={{fontWeight:700,color:C.green}}>NT${o.total.toLocaleString()}</span>
-                <button onClick={()=>toggleStatus(o.email)} style={{background:o.status==="handled"?C.gl:C.gold,color:C.white,border:"none",borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:"pointer"}}>
-                  {o.status==="handled"?"↩ 恢復":"✅ 已處理"}
+                <button onClick={()=>toggleStatus(o.email)} disabled={!!busyOp}
+                  style={{background:busyOp===o.email?"#aaa":o.status==="handled"?C.gl:C.gold,color:C.white,border:"none",borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:busyOp?"not-allowed":"pointer",opacity:busyOp&&busyOp!==o.email?.5:1}}>
+                  {busyOp===o.email?"處理中…":o.status==="handled"?"↩ 恢復":"✅ 已處理"}
                 </button>
-                <button onClick={()=>setConfirmDelete(o.email)} style={{background:"none",color:C.red,border:`1px solid ${C.red}`,borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:"pointer"}}>
+                <button onClick={()=>setConfirmDelete(o.email)} disabled={!!busyOp}
+                  style={{background:"none",color:busyOp?C.muted:C.red,border:`1px solid ${busyOp?C.muted:C.red}`,borderRadius:7,padding:"4px 10px",fontSize:"0.75rem",cursor:busyOp?"not-allowed":"pointer",opacity:busyOp?.5:1}}>
                   🗑 刪除
                 </button>
               </div>
@@ -1496,6 +1584,7 @@ export default function App() {
           {view==="admin"&&<AdminView settings={settings} setSettings={setSettings} cats={cats} setCats={setCats}/>}
         </div>
       </div>
+      <SyncStatus/>
     </>
   );
 }
