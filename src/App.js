@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.4";
+const VERSION = "v2.6";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
@@ -1181,31 +1181,49 @@ function CloseoutTab({settings,setSettings,cats}) {
     setConfirm(false);setDone(true);
   };
 
-  // 產生結單表 TSV（新格式）
-  const genTSV=()=>{
-    const header="商品名稱\t數量(盒)\t總金額(含運)\t\t收件人姓名\t收件人電話\t收件人住址\t備註\t訂購人姓名";
+  // 產生結單表資料（2D array 格式）
+  const genCloseoutRows=()=>{
     const rows=[];
     Object.values(orders||{}).forEach(o=>{
-      Object.entries(o.cart).filter(([,q])=>q>0).forEach(([id,q])=>{
+      const entries=Object.entries(o.cart).filter(([,q])=>q>0);
+      entries.forEach(([id,q],i)=>{
         const p=fp[id];
         if(p) rows.push([
           p.name,
           q,
-          (p.price*q).toLocaleString(),
+          p.price*q,
           "",                    // 空白欄
-          o.recipientName,
-          o.recipientPhone,
-          o.recipientAddress,
-          "",                    // 備註（已移除欄位，留空）
-          o.ordererName
-        ].join("\t"));
+          i===0?o.recipientName:"",   // 只在第一行顯示收件人
+          i===0?o.recipientPhone:"",
+          i===0?o.recipientAddress:"",
+          "",                    // 備註
+          i===0?o.ordererName:""
+        ]);
       });
     });
-    return header+"\n"+rows.join("\n");
+    return rows;
   };
 
-  const [tsvModal,setTsvModal]=useState(false);
-  const copyTSV=()=>setTsvModal(true);
+  const [exporting,setExporting]=useState(false);
+  const [exportMsg,setExportMsg]=useState("");
+
+  const exportToSheet=async()=>{
+    setExporting(true);setExportMsg("");
+    try {
+      const rows=genCloseoutRows();
+      const sheetName=`結單表_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+      const params=new URLSearchParams();
+      params.append("action","syncCloseout");
+      params.append("sheetName",sheetName);
+      params.append("value",JSON.stringify(rows));
+      params.append("token",WRITE_TOKEN);
+      await fetch(GAS_URL,{method:"POST",mode:"no-cors",body:params});
+      setExportMsg(`✅ 已匯出到「${sheetName}」工作表！請到 Google Sheets 確認。`);
+    } catch(e){
+      setExportMsg("❌ 匯出失敗，請確認 Apps Script 已部署");
+    }
+    setExporting(false);
+  };
 
   if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
   const list=Object.values(orders);
@@ -1213,35 +1231,13 @@ function CloseoutTab({settings,setSettings,cats}) {
   return (
     <div style={{maxWidth:700}}>
       {confirm&&<ConfirmModal msg={`確定結單 ${settings.year}年${settings.month}月 的團購？結單後訂購者無法修改訂單。`} onOk={doCloseout} onCancel={()=>setConfirm(false)}/>}
-      {tsvModal&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div className="pop" style={{background:C.white,borderRadius:18,width:"100%",maxWidth:680,maxHeight:"85vh",overflow:"auto",boxShadow:"0 8px 40px rgba(0,0,0,.15)"}}>
-            <div style={{background:C.green,color:C.white,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"18px 18px 0 0"}}>
-              <span className="serif" style={{fontWeight:700}}>📋 結單表內容</span>
-              <button onClick={()=>setTsvModal(false)} style={{background:"none",border:"none",color:C.white,cursor:"pointer",fontSize:"1.2rem"}}>✕</button>
-            </div>
-            <div style={{padding:20}}>
-              <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>
-                請全選下方內容（<kbd style={{background:"#eee",padding:"1px 6px",borderRadius:4}}>Ctrl+A</kbd> 或長按全選），複製後貼入 Google 試算表即可。
-              </p>
-              <textarea readOnly value={genTSV()} rows={14}
-                onFocus={e=>e.target.select()}
-                style={{width:"100%",border:`1.5px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontSize:"0.78rem",fontFamily:"monospace",background:"#f8f8f5",resize:"vertical",outline:"none",lineHeight:1.7}}
-              />
-              <div style={{marginTop:12,display:"flex",gap:10,alignItems:"center"}}>
-                <Btn onClick={()=>setTsvModal(false)} outline color={C.muted} small>關閉</Btn>
-                <span style={{fontSize:"0.75rem",color:C.muted}}>點擊文字區域可快速全選</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>🚚 結單送貨</div>
       {done&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ 已結單！首頁將顯示「{settings.year}年{settings.month}月的團購已結單」</div>}
+      {exportMsg&&<div style={{background:exportMsg.startsWith("✅")?C.gp:"#fff5f5",border:`1px solid ${exportMsg.startsWith("✅")?C.gl:"#feb2b2"}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:exportMsg.startsWith("✅")?C.green:C.red,marginBottom:14}}>{exportMsg}</div>}
       <div style={{display:"flex",gap:10,marginBottom:18,flexWrap:"wrap"}}>
         {settings.isOpen&&<Btn onClick={()=>setConfirm(true)} color={C.red}>🔒 執行結單</Btn>}
         {!settings.isOpen&&<div style={{background:"#fff5f5",border:`1px solid #feb2b2`,borderRadius:8,padding:"9px 14px",fontSize:"0.82rem",color:C.red}}>本月已結單</div>}
-        <Btn onClick={copyTSV} color={C.gold} outline>📋 複製結單表（貼入 Google Sheets）</Btn>
+        <Btn onClick={exportToSheet} disabled={exporting} color={C.gold} outline>{exporting?"匯出中…":"📊 結單表轉檔（匯出到 Google Sheets）"}</Btn>
       </div>
       {/* Shipping table preview */}
       <div style={{overflowX:"auto"}}>
@@ -1255,19 +1251,19 @@ function CloseoutTab({settings,setSettings,cats}) {
           </thead>
           <tbody>
             {list.length===0?<tr><td colSpan={9} style={{textAlign:"center",padding:20,color:C.muted}}>尚無訂單</td></tr>
-            :list.map(o=>Object.entries(o.cart).filter(([,q])=>q>0).map(([id,q])=>{const p=fp[id];return p&&(
-              <tr key={o.email+id} style={{borderBottom:`1px solid ${C.border}`}}>
+            :list.map(o=>{const items=Object.entries(o.cart).filter(([,q])=>q>0);return items.map(([id,q],i)=>{const p=fp[id];return p&&(
+              <tr key={o.email+id} style={{borderBottom:`1px solid ${C.border}`,background:i===0?"transparent":"#fafaf8"}}>
                 <td style={{padding:"7px 10px"}}>{p.name}</td>
                 <td style={{padding:"7px 10px",textAlign:"center"}}>{q}</td>
                 <td style={{padding:"7px 10px",fontWeight:600,color:C.green}}>NT${(p.price*q).toLocaleString()}</td>
                 <td style={{padding:"7px 10px"}}></td>
-                <td style={{padding:"7px 10px"}}>{o.recipientName}</td>
-                <td style={{padding:"7px 10px"}}>{o.recipientPhone}</td>
-                <td style={{padding:"7px 10px",maxWidth:180,wordBreak:"break-all"}}>{o.recipientAddress}</td>
+                <td style={{padding:"7px 10px"}}>{i===0?o.recipientName:""}</td>
+                <td style={{padding:"7px 10px"}}>{i===0?o.recipientPhone:""}</td>
+                <td style={{padding:"7px 10px",maxWidth:180,wordBreak:"break-all"}}>{i===0?o.recipientAddress:""}</td>
                 <td style={{padding:"7px 10px",color:C.muted}}></td>
-                <td style={{padding:"7px 10px"}}>{o.ordererName}</td>
+                <td style={{padding:"7px 10px"}}>{i===0?o.ordererName:""}</td>
               </tr>
-            );}))
+            );});})
             }
           </tbody>
         </table>
@@ -1607,10 +1603,12 @@ export default function App() {
 
         {/* Notice bar */}
         {view==="shop"&&(
-          <div style={{background:isOpen?"linear-gradient(135deg,#1b4332,#2d6a4f)":"linear-gradient(135deg,#7b341e,#c05621)",color:C.white,padding:"11px 20px",textAlign:"center",fontSize:"0.82rem",lineHeight:1.8}}>
-            <strong style={{fontSize:"0.95rem",marginRight:10}}>{monthLabel}的團購</strong>
-            {isOpen?<span style={{opacity:.9}}>{settings.bulletin||DEFAULT_BULLETIN}</span>
-            :<span style={{opacity:.9}}>⚠️ {monthLabel}的團購已結單，歡迎期待下一期！</span>}
+          <div style={{background:isOpen?"linear-gradient(135deg,#1b4332,#2d6a4f)":"linear-gradient(135deg,#7b341e,#c05621)",color:C.white,padding:"12px 20px",textAlign:"center"}}>
+            <div className="serif" style={{fontSize:"1.05rem",fontWeight:700,letterSpacing:".05em"}}>{isOpen?"🟢":"🔴"} {monthLabel}的團購{isOpen?"":"已結單"}</div>
+            <div style={{fontSize:"0.8rem",opacity:.85,marginTop:6,lineHeight:1.7}}>
+              {isOpen?(settings.bulletin||DEFAULT_BULLETIN)
+              :`歡迎期待下一期！`}
+            </div>
           </div>
         )}
 
