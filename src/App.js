@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const ADMIN_PW = "844844";
-const VERSION = "v1.8";
+const VERSION = "v1.9";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
-const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE"; // ⚠️ 需與 GAS 端一致
+const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";// ⚠️ 需與 GAS 端一致
 
 // ── STORAGE（透過 Google Apps Script 存入 Google Sheets）──────────────────
 // 同步狀態通知（供 SyncStatus 元件使用）
@@ -523,22 +523,22 @@ function ShopView({settings,cats,onOrderSuccess}) {
         {shown.map(cat=>(
           <div key={cat.key} style={{marginBottom:26}}>
             <div className="serif" style={{fontSize:"0.93rem",fontWeight:600,color:C.green,marginBottom:10,paddingBottom:7,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(195px,1fr))",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(195px,1fr))",gap:isMobile?8:10}}>
               {cat.products.map(p=>{
                 const q=cart[p.id]||0;
                 return (
-                  <div key={p.id} style={{background:p.outOfStock?"#f5f5f5":q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:12,padding:13,opacity:p.outOfStock?.6:1,transition:"all .15s"}}>
-                    <a href={p.url||BASE_URL} target="_blank" rel="noreferrer" style={{fontSize:"0.83rem",fontWeight:500,lineHeight:1.4,display:"block",minHeight:"2.2em",color:C.text,textDecoration:"none"}}
+                  <div key={p.id} style={{background:p.outOfStock?"#f5f5f5":q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:isMobile?10:12,padding:isMobile?10:13,opacity:p.outOfStock?.6:1,transition:"all .15s"}}>
+                    <a href={p.url||BASE_URL} target="_blank" rel="noreferrer" style={{fontSize:isMobile?"0.76rem":"0.83rem",fontWeight:500,lineHeight:1.4,display:"block",minHeight:"2.2em",color:C.text,textDecoration:"none"}}
                       onMouseEnter={e=>e.currentTarget.style.color=C.gl} onMouseLeave={e=>e.currentTarget.style.color=C.text}>
                       {p.name} 🔗
                     </a>
-                    <div className="serif" style={{fontSize:"1rem",fontWeight:700,color:C.green,margin:"6px 0"}}>NT${p.price.toLocaleString()}</div>
+                    <div className="serif" style={{fontSize:isMobile?"0.9rem":"1rem",fontWeight:700,color:C.green,margin:isMobile?"4px 0":"6px 0"}}>NT${p.price.toLocaleString()}</div>
                     {p.outOfStock
                       ? <div style={{background:"#eee",color:C.muted,borderRadius:7,padding:"6px 0",textAlign:"center",fontSize:"0.8rem"}}>暫時缺貨</div>
                       : <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden",width:"100%"}}>
-                          <button onClick={()=>setQ(p.id,q-1)} style={{flexShrink:0,width:32,height:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:"1rem"}}>−</button>
-                          <input type="number" value={q} onChange={e=>setQ(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,width:0,border:"none",textAlign:"center",fontSize:"0.88rem",fontWeight:600,background:C.white,outline:"none"}} />
-                          <button onClick={()=>setQ(p.id,q+1)} style={{flexShrink:0,width:32,height:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:"1rem"}}>＋</button>
+                          <button onClick={()=>setQ(p.id,q-1)} style={{flexShrink:0,width:isMobile?28:32,height:isMobile?28:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:isMobile?"0.9rem":"1rem"}}>−</button>
+                          <input type="number" value={q} onChange={e=>setQ(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,width:0,border:"none",textAlign:"center",fontSize:isMobile?"0.82rem":"0.88rem",fontWeight:600,background:C.white,outline:"none"}} />
+                          <button onClick={()=>setQ(p.id,q+1)} style={{flexShrink:0,width:isMobile?28:32,height:isMobile?28:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:isMobile?"0.9rem":"1rem"}}>＋</button>
                         </div>
                     }
                   </div>
