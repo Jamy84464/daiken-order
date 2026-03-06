@@ -8,8 +8,17 @@ const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
 const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";
 
+
 // Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
 const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
+
+// 過濾掉 _v 等 meta 欄位，只保留真正的資料項目
+function dataEntries(obj) {
+  if (!obj || typeof obj !== "object") return {};
+  const clean = {};
+  Object.entries(obj).forEach(([k,v]) => { if (!k.startsWith("_")) clean[k] = v; });
+  return clean;
+}
 
 // ── STORAGE（透過 Google Apps Script 存入 Google Sheets）──────────────────
 // 同步狀態通知（供 SyncStatus 元件使用）
@@ -1093,7 +1102,7 @@ function OrdersTab({settings,cats}) {
     setConfirmDelete(null);
   };
   if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
-  const list=Object.values(orders).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+  const list=Object.values(dataEntries(orders)).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
   const totalAmt=list.filter(o=>o.status!=="handled").reduce((s,o)=>s+o.total,0);
   return (
     <div>
@@ -1170,7 +1179,7 @@ function HistoryTab({cats}) {
           </div>
           {expanded===h.key&&monthOrders[h.key]&&(
             <div style={{padding:"10px 16px"}}>
-              {Object.values(monthOrders[h.key]).map(o=>(
+              {Object.values(dataEntries(monthOrders[h.key])).map(o=>(
                 <div key={o.email} style={{borderBottom:`1px solid ${C.border}`,padding:"8px 0",fontSize:"0.82rem"}}>
                   <span style={{fontWeight:600}}>{o.ordererName}</span>
                   <span style={{color:C.muted,marginLeft:8}}>{o.email}</span>
@@ -1193,12 +1202,12 @@ function CustomersTab() {
   const [search,setSearch]=useState("");
   useEffect(()=>{load("customers").then(c=>setCustomers(c||{}));}, []);
   if(!customers) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
-  const list=Object.values(customers).filter(c=>!search||(c.name+c.email+c.phone).includes(search));
+  const list=Object.values(dataEntries(customers)).filter(c=>!search||(c.name+c.email+c.phone).includes(search));
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div className="serif" style={{fontSize:"0.97rem",fontWeight:700}}>👥 訂購人資料庫</div>
-        <span style={{fontSize:"0.8rem",color:C.muted}}>共 {Object.keys(customers).length} 人</span>
+        <span style={{fontSize:"0.8rem",color:C.muted}}>共 {Object.keys(dataEntries(customers)).length} 人</span>
       </div>
       <div style={{marginBottom:14}}><TextInput value={search} onChange={setSearch} placeholder="搜尋姓名、email、手機…"/></div>
       {list.length===0?<div style={{color:C.muted,textAlign:"center",padding:24}}>查無資料</div>
@@ -1239,7 +1248,7 @@ function CloseoutTab({settings,setSettings,cats}) {
     const h=await load("history")||[];
     const monthKey=`${settings.year}_${String(settings.month).padStart(2,"0")}`;
     if(!h.find(x=>x.key===monthKey)){
-      const list=Object.values(orders||{});
+      const list=Object.values(dataEntries(orders||{}));
       h.push({key:monthKey,year:settings.year,month:settings.month,closedAt:new Date().toLocaleString("zh-TW"),orderCount:list.length,totalAmt:list.reduce((s,o)=>s+o.total,0)});
       await save("history",h);
     }
@@ -1249,7 +1258,7 @@ function CloseoutTab({settings,setSettings,cats}) {
   // 產生結單表資料（2D array 格式）
   const genCloseoutRows=()=>{
     const rows=[];
-    Object.values(orders||{}).forEach(o=>{
+    Object.values(dataEntries(orders||{})).forEach(o=>{
       const entries=Object.entries(o.cart).filter(([,q])=>q>0);
       entries.forEach(([id,q],i)=>{
         const p=fp[id];
@@ -1291,7 +1300,7 @@ function CloseoutTab({settings,setSettings,cats}) {
   };
 
   if(!orders) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
-  const list=Object.values(orders);
+  const list=Object.values(dataEntries(orders));
 
   return (
     <div style={{maxWidth:700}}>
@@ -1397,8 +1406,8 @@ function EmailsTab({settings,cats}) {
   const statusIcon=(key)=>{const s=sending[key];return s==="sending"?" ⏳":s==="sent"?" ✅":s==="error"?" ❌":"";}
 
   if(!orders||!allCustomers) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
-  const list=Object.values(orders);
-  const allCustList=Object.values(allCustomers);
+  const list=Object.values(dataEntries(orders));
+  const allCustList=Object.values(dataEntries(allCustomers));
 
   return (
     <div>
@@ -1495,7 +1504,7 @@ function NewMonthTab({settings,setSettings}) {
     setBlockReason("");
     const curKey=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     const curOrders=await load(curKey)||{};
-    const pendingList=Object.values(curOrders).filter(o=>o.status!=="handled");
+    const pendingList=Object.values(dataEntries(curOrders)).filter(o=>o.status!=="handled");
     setChecking(false);
     if(settings.isOpen && pendingList.length>0){
       setBlockReason(`目前 ${settings.year}年${settings.month}月 還有 ${pendingList.length} 筆訂單未處理，請先結單後再開啟新月份。`);
