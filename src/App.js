@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.7";
+const VERSION = "v2.7.0";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999" };
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
-const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";
-
+const SPREADSHEET_ID = "12n0gv6Guo1Vtzm0tqGk7Vd6ftkIXc4XF2HAjgt0Ojvo";
 
 // Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
 const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
@@ -1325,19 +1324,25 @@ function CloseoutTab({settings,setSettings,cats}) {
           </thead>
           <tbody>
             {list.length===0?<tr><td colSpan={9} style={{textAlign:"center",padding:20,color:C.muted}}>尚無訂單</td></tr>
-            :list.map(o=>{const items=Object.entries(o.cart).filter(([,q])=>q>0);return items.map(([id,q],i)=>{const p=fp[id];return p&&(
-              <tr key={o.email+id} style={{borderBottom:`1px solid ${C.border}`,background:i===0?"transparent":"#fafaf8"}}>
-                <td style={{padding:"7px 10px"}}>{p.name}</td>
-                <td style={{padding:"7px 10px",textAlign:"center"}}>{q}</td>
-                <td style={{padding:"7px 10px",fontWeight:600,color:C.green}}>NT${(p.price*q).toLocaleString()}</td>
-                <td style={{padding:"7px 10px"}}></td>
-                <td style={{padding:"7px 10px"}}>{i===0?o.recipientName:""}</td>
-                <td style={{padding:"7px 10px"}}>{i===0?o.recipientPhone:""}</td>
-                <td style={{padding:"7px 10px",maxWidth:180,wordBreak:"break-all"}}>{i===0?o.recipientAddress:""}</td>
-                <td style={{padding:"7px 10px",color:C.muted}}></td>
-                <td style={{padding:"7px 10px"}}>{i===0?o.ordererName:""}</td>
-              </tr>
-            );});})
+            :(()=>{let gi=0;return list.map((o,oi)=>{
+              const items=Object.entries(o.cart).filter(([,q])=>q>0);
+              const bgColor=gi%2===0?"#dce6f1":"#ffffff";
+              const isLast=oi===list.length-1;
+              gi++;
+              return items.map(([id,q],i)=>{const p=fp[id];return p&&(
+                <tr key={o.email+id} style={{background:bgColor,...(i===items.length-1&&!isLast?{borderBottom:"2.5px solid #333"}:{borderBottom:`1px solid ${C.border}`})}}>
+                  <td style={{padding:"7px 10px"}}>{p.name}</td>
+                  <td style={{padding:"7px 10px",textAlign:"center"}}>{q}</td>
+                  <td style={{padding:"7px 10px",fontWeight:600,color:C.green}}>NT${(p.price*q).toLocaleString()}</td>
+                  <td style={{padding:"7px 10px"}}></td>
+                  <td style={{padding:"7px 10px"}}>{i===0?o.recipientName:""}</td>
+                  <td style={{padding:"7px 10px"}}>{i===0?o.recipientPhone:""}</td>
+                  <td style={{padding:"7px 10px",maxWidth:180,wordBreak:"break-all"}}>{i===0?o.recipientAddress:""}</td>
+                  <td style={{padding:"7px 10px",color:C.muted}}></td>
+                  <td style={{padding:"7px 10px"}}>{i===0?o.ordererName:""}</td>
+                </tr>
+              );});
+            });})()
             }
           </tbody>
         </table>
