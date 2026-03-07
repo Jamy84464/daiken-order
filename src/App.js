@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.8.1";
+const VERSION = "v2.9.0";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -763,6 +763,13 @@ function MyOrderView({settings,cats}) {
     };
     orders[email.toLowerCase()]=updated;
     await save(key,orders);
+    // 修改後重新寄送訂購確認信
+    requestSendEmail({
+      to: email.toLowerCase(),
+      subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂單已更新 — ${updated.ordererName}`,
+      body: genConfirmEmail(updated, cats),
+      isHtml: true,
+    });
     setSaving(false);setOrder(updated);setEditMode(false);setSaved(true);
   };
 
@@ -798,13 +805,38 @@ function MyOrderView({settings,cats}) {
             );
           })}
         </div>
-        {/* Edit form */}
-        <div style={{position:isMobile?"static":"sticky",top:72,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
+        {/* Edit sidebar: cart summary + form */}
+        <div style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,...(!isMobile&&{maxHeight:"calc(100vh - 88px)",overflow:"hidden"})}}>
+          {/* Cart summary */}
+          {(()=>{const editItems=Object.entries(cart).filter(([,q])=>q>0);const editTotal=editItems.reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0);return(
+          <div style={{flexShrink:0,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
+            <div style={{background:C.green,color:C.white,padding:"12px 16px",fontWeight:600,fontSize:"0.9rem"}}>
+              🛒 修改中的購物車 {editItems.length>0&&<span style={{background:"rgba(255,255,255,.2)",borderRadius:9,padding:"2px 8px",fontSize:"0.75rem",marginLeft:6}}>{editItems.length} 種</span>}
+            </div>
+            <div style={{padding:"8px 14px",maxHeight:160,overflowY:"auto"}}>
+              {editItems.length===0
+                ?<div style={{textAlign:"center",color:C.muted,fontSize:"0.82rem",padding:"14px 0"}}>尚未加入商品</div>
+                :editItems.map(([id,q])=>{const p=fp[id];return p&&(
+                  <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.border}`,gap:6,fontSize:"0.78rem"}}>
+                    <span style={{flex:1,lineHeight:1.4}}>{p.name} × {q}</span>
+                    <span style={{fontWeight:600,color:C.green,whiteSpace:"nowrap"}}>NT${(p.price*q).toLocaleString()}</span>
+                  </div>
+              );})
+              }
+            </div>
+            <div style={{padding:"10px 16px",background:C.cream,borderTop:`2px solid ${C.gp}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:"0.82rem",color:C.muted}}>合計</span>
+              <span className="serif" style={{fontSize:"1.2rem",fontWeight:700,color:C.green}}>NT${editTotal.toLocaleString()}</span>
+            </div>
+          </div>);})()}
+          {/* Edit form */}
+          <div style={{flex:1,minHeight:0,overflowY:"auto",background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,padding:17}}>
           <div className="serif" style={{fontSize:"0.9rem",fontWeight:700,marginBottom:12}}>修改收件資訊</div>
           <Field label="收件人姓名" required><TextInput value={form.recipientName} onChange={v=>setForm(p=>({...p,recipientName:v}))} /></Field>
           <Field label="收件地址" required><TextInput value={form.recipientAddress} onChange={v=>setForm(p=>({...p,recipientAddress:v}))} /></Field>
           <Field label="收件人電話" required><TextInput value={form.recipientPhone} onChange={v=>setForm(p=>({...p,recipientPhone:v}))} /></Field>
           <Btn onClick={handleSave} disabled={saving} full>✅ {saving?"儲存中…":"確認更新訂單"}</Btn>
+          </div>
         </div>
       </div>
     </div>
@@ -857,7 +889,7 @@ function MyOrderView({settings,cats}) {
             </div>
           )}
           {order.status==="handled"&&(
-            <div style={{padding:"10px 18px",background:C.cream,fontSize:"0.78rem",color:C.muted,textAlign:"center",borderTop:`1px solid ${C.border}`}}>此訂單已處理，如需更改請聯絡管理員</div>
+            <div style={{padding:"10px 18px",background:C.cream,fontSize:"0.78rem",color:C.muted,textAlign:"center",borderTop:`1px solid ${C.border}`}}>此訂單已處理，如需更改請聯絡 <a href="mailto:jamy844.bot@gmail.com" style={{color:C.gl}}>jamy844.bot@gmail.com</a></div>
           )}
         </div>
       )}
@@ -1592,6 +1624,7 @@ export default function App() {
 
   useEffect(()=>{
     // ── Cache-first：先從 localStorage 立即渲染，再背景從 GAS 更新 ──
+    document.title = "大研生醫團購";
     // Settings
     try {
       const cachedSettings = localStorage.getItem("settings");
@@ -1677,14 +1710,17 @@ export default function App() {
               <div style={{fontSize:"0.7rem",opacity:.75,letterSpacing:".08em",marginTop:2}}>台大EMBA · 師長 · 好友 專屬 <span style={{opacity:.6,marginLeft:6}}>{VERSION}</span></div>
             </div>
             <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-              {[["shop","🛒 訂購"],["myorder","🔍 查詢/修改訂單"],["admin","⚙️ 後台"]].map(([v,l])=>(
-                <button key={v} onClick={()=>setView(v)} style={{
+              {[["shop","🛒 訂購"],["myorder","🔍 查詢/修改訂單"],["admin","⚙️ 後台"]].map(([v,l])=>{
+                const disabled=v==="myorder"&&!isOpen;
+                return(
+                <button key={v} onClick={()=>{if(!disabled)setView(v);}} style={{
                   background:view===v?"rgba(255,255,255,.25)":"rgba(255,255,255,.12)",
                   color:C.white,border:`1px solid rgba(255,255,255,${view===v?.4:.2})`,
-                  borderRadius:8,padding:"7px 13px",fontSize:"0.8rem",cursor:"pointer",
+                  borderRadius:8,padding:"7px 13px",fontSize:"0.8rem",cursor:disabled?"not-allowed":"pointer",
                   fontFamily:"'Noto Sans TC',sans-serif",fontWeight:view===v?600:400,
+                  opacity:disabled?.4:1,
                 }}>{l}</button>
-              ))}
+              );})}
             </div>
           </div>
         </div>
@@ -1707,8 +1743,7 @@ export default function App() {
               : <div style={{textAlign:"center",padding:"60px 20px"}}>
                   <div style={{fontSize:"3rem",marginBottom:12}}>📦</div>
                   <div className="serif" style={{fontSize:"1.3rem",fontWeight:700,marginBottom:8}}>{monthLabel}的團購已結單</div>
-                  <div style={{color:C.muted,fontSize:"0.88rem",marginBottom:20}}>歡迎期待下一期，如有問題請聯絡管理員。</div>
-                  <Btn onClick={()=>setView("myorder")} outline color={C.green}>查詢我的訂單</Btn>
+                  <div style={{color:C.muted,fontSize:"0.88rem"}}>歡迎期待下一期，如有問題請聯絡 <a href="mailto:jamy844.bot@gmail.com" style={{color:C.gl}}>jamy844.bot@gmail.com</a></div>
                 </div>
           )}
           {view==="myorder"&&<MyOrderView settings={settings} cats={cats}/>}
