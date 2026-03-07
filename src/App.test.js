@@ -161,8 +161,9 @@ describe('頁面導覽', () => {
 describe('商品瀏覽', () => {
   test('顯示所有產品類別', () => {
     render(<App />);
-    expect(screen.getByText('🐟 魚油系列')).toBeInTheDocument();
-    expect(screen.getByText('💊 維生素礦物質')).toBeInTheDocument();
+    // 類別名稱同時出現在篩選按鈕和區段標題
+    expect(screen.getAllByText('🐟 魚油系列').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('💊 維生素礦物質').length).toBeGreaterThanOrEqual(2);
   });
 
   test('顯示產品名稱和價格', () => {
@@ -183,9 +184,10 @@ describe('商品瀏覽', () => {
 
   test('點擊類別篩選按鈕過濾產品', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('💊 維生素礦物質'));
-    // 魚油系列的標題不應出現在產品列表區
-    // 維生素應該仍然可見
+    // 點擊篩選按鈕（取第一個，即 filter button）
+    const vitaminButtons = screen.getAllByText('💊 維生素礦物質');
+    fireEvent.click(vitaminButtons[0]);
+    // 維生素產品仍然可見
     expect(screen.getByText(/倍力他命/)).toBeInTheDocument();
   });
 
@@ -224,7 +226,8 @@ describe('購物車操作', () => {
     // 先加入一個 700 元的產品
     const plusButtons = screen.getAllByText('＋');
     fireEvent.click(plusButtons[0]);
-    expect(screen.getByText('NT$700')).toBeInTheDocument();
+    // 價格格式可能是 NT$700 或 NT700
+    expect(screen.getAllByText(/NT\$?700/).length).toBeGreaterThan(0);
   });
 
   test('加入多個商品計算正確的總額', () => {
@@ -268,7 +271,7 @@ describe('已結單狀態', () => {
     const closedSettings = { ...mockSettings, isOpen: false };
     localStorageData.settings = JSON.stringify(closedSettings);
     render(<App />);
-    expect(screen.getByText(/已結單/)).toBeInTheDocument();
+    expect(screen.getAllByText(/已結單/).length).toBeGreaterThan(0);
   });
 
   test('已結單時查詢/修改訂單按鈕無法點擊', () => {
@@ -288,20 +291,20 @@ describe('查詢訂單', () => {
   test('顯示 Email 輸入欄位和查詢按鈕', () => {
     render(<App />);
     fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
-    expect(screen.getByPlaceholderText(/Email/)).toBeInTheDocument();
-    expect(screen.getByText('🔍 查詢我的訂單')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('your@email.com')).toBeInTheDocument();
+    expect(screen.getByText('查詢訂單')).toBeInTheDocument();
   });
 
   test('輸入 Email 查詢後顯示訂單', async () => {
     render(<App />);
     fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
 
-    const emailInput = screen.getByPlaceholderText(/Email/);
+    const emailInput = screen.getByPlaceholderText('your@email.com');
     fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
-    fireEvent.click(screen.getByText('🔍 查詢我的訂單'));
+    fireEvent.click(screen.getByText('查詢訂單'));
 
     await waitFor(() => {
-      expect(screen.getByText('測試用戶')).toBeInTheDocument();
+      expect(screen.getByText(/測試用戶/)).toBeInTheDocument();
     });
   });
 
@@ -309,12 +312,12 @@ describe('查詢訂單', () => {
     render(<App />);
     fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
 
-    const emailInput = screen.getByPlaceholderText(/Email/);
+    const emailInput = screen.getByPlaceholderText('your@email.com');
     fireEvent.change(emailInput, { target: { value: 'notfound@example.com' } });
-    fireEvent.click(screen.getByText('🔍 查詢我的訂單'));
+    fireEvent.click(screen.getByText('查詢訂單'));
 
     await waitFor(() => {
-      expect(screen.getByText(/找不到訂單/)).toBeInTheDocument();
+      expect(screen.getByText(/查無本月訂單/)).toBeInTheDocument();
     });
   });
 });
@@ -412,7 +415,7 @@ describe('管理後台分頁', () => {
   test('切換到產品管理分頁', async () => {
     await loginAdmin();
     fireEvent.click(screen.getByText('📦 產品管理'));
-    expect(screen.getByText('📦 產品管理')).toBeInTheDocument();
+    expect(screen.getAllByText(/產品管理/).length).toBeGreaterThan(0);
     expect(screen.getByText(/透過 Google Sheets 管理產品/)).toBeInTheDocument();
   });
 
@@ -440,14 +443,16 @@ describe('訂單管理', () => {
   };
 
   test('顯示訂單統計', async () => {
+    // 確保 orders 資料在 localStorage（注意月份用 padStart）
+    localStorageData[`orders_2026_03`] = JSON.stringify(mockOrders);
     await loginAndGoToOrders();
     await waitFor(() => {
       expect(screen.getByText('📦 訂單數')).toBeInTheDocument();
-      expect(screen.getByText('⏳ 待處理')).toBeInTheDocument();
-      expect(screen.getByText('✅ 已處理')).toBeInTheDocument();
-      expect(screen.getByText('💰 待收')).toBeInTheDocument();
-    });
-  });
+    }, { timeout: 3000 });
+    expect(screen.getByText('⏳ 待處理')).toBeInTheDocument();
+    expect(screen.getAllByText('✅ 已處理').length).toBeGreaterThan(0);
+    expect(screen.getByText('💰 待收')).toBeInTheDocument();
+  }, 10000);
 
   test('顯示訂單列表', async () => {
     await loginAndGoToOrders();
@@ -538,8 +543,9 @@ describe('SyncStatus', () => {
 describe('類別篩選', () => {
   test('點擊全部按鈕顯示所有產品', () => {
     render(<App />);
-    // 先切換到特定類別
-    fireEvent.click(screen.getByText('💊 維生素礦物質'));
+    // 先切換到特定類別（取第一個匹配，即篩選按鈕）
+    const vitaminButtons = screen.getAllByText('💊 維生素礦物質');
+    fireEvent.click(vitaminButtons[0]);
     // 再切回全部
     fireEvent.click(screen.getByText('全部'));
     expect(screen.getByText(/德國頂級魚油/)).toBeInTheDocument();

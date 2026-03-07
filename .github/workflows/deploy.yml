@@ -37,6 +37,9 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          REACT_APP_GAS_URL: ${{ secrets.REACT_APP_GAS_URL }}
+          REACT_APP_WRITE_TOKEN: ${{ secrets.REACT_APP_WRITE_TOKEN }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

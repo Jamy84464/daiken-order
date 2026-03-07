@@ -5,8 +5,9 @@ const VERSION = "v2.9.2";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
-const GAS_URL = "https://script.google.com/macros/s/AKfycbxqpzKiex-geXwk1hCVJcekhTL2bONYxq6GvjBDff9KufaQlOrGiAVo9ytH7iJ1JQrH/exec";
-const WRITE_TOKEN = "Dk8mX4pQz7vR2nYw9sL5jB3hT6fA1cE";
+const GAS_URL = process.env.REACT_APP_GAS_URL;
+const WRITE_TOKEN = process.env.REACT_APP_WRITE_TOKEN;
+if (!GAS_URL || !WRITE_TOKEN) console.error("Missing REACT_APP_GAS_URL or REACT_APP_WRITE_TOKEN. Copy .env.example to .env.local and fill in values.");
 
 // Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
 const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
