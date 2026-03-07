@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.9.0";
+const VERSION = "v2.9.1";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -807,18 +807,23 @@ function MyOrderView({settings,cats}) {
         </div>
         {/* Edit sidebar: cart summary + form */}
         <div style={{position:isMobile?"static":"sticky",top:72,display:"flex",flexDirection:"column",gap:14,...(!isMobile&&{maxHeight:"calc(100vh - 88px)",overflow:"hidden"})}}>
-          {/* Cart summary */}
+          {/* Cart summary with +/- controls */}
           {(()=>{const editItems=Object.entries(cart).filter(([,q])=>q>0);const editTotal=editItems.reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0);return(
           <div style={{flexShrink:0,background:C.white,border:`1.5px solid ${C.border}`,borderRadius:16,overflow:"hidden",boxShadow:"0 3px 18px rgba(0,0,0,.06)"}}>
             <div style={{background:C.green,color:C.white,padding:"12px 16px",fontWeight:600,fontSize:"0.9rem"}}>
-              🛒 修改中的購物車 {editItems.length>0&&<span style={{background:"rgba(255,255,255,.2)",borderRadius:9,padding:"2px 8px",fontSize:"0.75rem",marginLeft:6}}>{editItems.length} 種</span>}
+              🛒 購物車 {editItems.length>0&&<span style={{background:"rgba(255,255,255,.2)",borderRadius:9,padding:"2px 8px",fontSize:"0.75rem",marginLeft:6}}>{editItems.length} 種</span>}
             </div>
-            <div style={{padding:"8px 14px",maxHeight:160,overflowY:"auto"}}>
+            <div style={{padding:"10px 16px",maxHeight:200,overflowY:"auto"}}>
               {editItems.length===0
                 ?<div style={{textAlign:"center",color:C.muted,fontSize:"0.82rem",padding:"14px 0"}}>尚未加入商品</div>
                 :editItems.map(([id,q])=>{const p=fp[id];return p&&(
-                  <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 0",borderBottom:`1px solid ${C.border}`,gap:6,fontSize:"0.78rem"}}>
-                    <span style={{flex:1,lineHeight:1.4}}>{p.name} × {q}</span>
+                  <div key={id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`,gap:8,fontSize:"0.8rem"}}>
+                    <span style={{flex:1,lineHeight:1.4}}>{p.name}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:3}}>
+                      <button onClick={()=>setCart(prev=>({...prev,[id]:Math.max(0,(prev[id]||0)-1)}))} style={{width:20,height:20,border:`1px solid ${C.border}`,borderRadius:4,background:C.cream,cursor:"pointer",color:C.green,fontWeight:700,fontSize:"0.85rem"}}>−</button>
+                      <span style={{minWidth:18,textAlign:"center",fontWeight:600}}>{q}</span>
+                      <button onClick={()=>setCart(prev=>({...prev,[id]:(prev[id]||0)+1}))} style={{width:20,height:20,border:`1px solid ${C.border}`,borderRadius:4,background:C.cream,cursor:"pointer",color:C.green,fontWeight:700,fontSize:"0.85rem"}}>＋</button>
+                    </div>
                     <span style={{fontWeight:600,color:C.green,whiteSpace:"nowrap"}}>NT${(p.price*q).toLocaleString()}</span>
                   </div>
               );})
