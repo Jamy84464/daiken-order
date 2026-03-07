@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.9.2";
+const VERSION = "v2.9.3";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -483,7 +483,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
   const isMobile = useIsMobile();
   const cartRef = useRef(null);
 
-  const fp = flatProducts(cats);
+  const fp = useMemo(()=>flatProducts(cats),[cats]);
   const cartItems = Object.entries(cart).filter(([,q])=>q>0);
   const total = cartItems.reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0);
 
@@ -580,8 +580,9 @@ function ShopView({settings,cats,onOrderSuccess}) {
       setEmailChecked(false);
     } catch(err) {
       console.error("Submit error:", err);
-      alert("送出時發生錯誤，請再試一次。\n" + err.message);
+      alert("送出時發生錯誤，您的表單資料已保留，請再試一次。\n" + err.message);
       setSubmitting(false);
+      return; // 保留表單與購物車資料，不清空
     }
   };
 
@@ -737,7 +738,7 @@ function MyOrderView({settings,cats}) {
   const [form,setForm]=useState({});
   const [saving,setSaving]=useState(false);
   const [saved,setSaved]=useState(false);
-  const fp=flatProducts(cats);
+  const fp=useMemo(()=>flatProducts(cats),[cats]);
   const isMobile=useIsMobile();
 
   const lookup=async()=>{
@@ -1132,7 +1133,7 @@ function OrdersTab({settings,cats}) {
   const [orders,setOrders]=useState(null);
   const [confirmDelete,setConfirmDelete]=useState(null);
   const [busyOp,setBusyOp]=useState(null); // 正在操作的 email，防止連點競態
-  const fp=flatProducts(cats);
+  const fp=useMemo(()=>flatProducts(cats),[cats]);
   useEffect(()=>{
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     load(key).then(o=>setOrders(o||{}));
@@ -1209,7 +1210,7 @@ function HistoryTab({cats}) {
   const [history,setHistory]=useState(null);
   const [expanded,setExpanded]=useState(null);
   const [monthOrders,setMonthOrders]=useState({});
-  const fp=flatProducts(cats);
+  const fp=useMemo(()=>flatProducts(cats),[cats]);
   useEffect(()=>{load("history").then(h=>setHistory(h||[]));}, []);
 
   const expand=async(month)=>{
@@ -1287,7 +1288,7 @@ function CloseoutTab({settings,setSettings,cats}) {
   const [orders,setOrders]=useState(null);
   const [confirm,setConfirm]=useState(false);
   const [done,setDone]=useState(false);
-  const fp=flatProducts(cats);
+  const fp=useMemo(()=>flatProducts(cats),[cats]);
 
   useEffect(()=>{
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
@@ -1412,7 +1413,7 @@ function EmailsTab({settings,cats}) {
   const [noticeText,setNoticeText]=useState("");
   const [sending,setSending]=useState({});
   const [sendingAll,setSendingAll]=useState(false);
-  const fp=flatProducts(cats);
+  const fp=useMemo(()=>flatProducts(cats),[cats]);
   const bank={...DEFAULT_BANK,...(settings.bank||{})};
 
   useEffect(()=>{
@@ -1639,9 +1640,7 @@ export default function App() {
   useEffect(()=>{
     // ── Cache-first：先從 localStorage 立即渲染，再背景從 GAS 更新 ──
     document.title = "大研生醫團購";
-    // 防止 iOS Safari 在 input focus 時自動放大
-    const vp = document.querySelector('meta[name="viewport"]');
-    if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1");
+    // viewport 使用 HTML 中的預設值，不限制使用者縮放
     // Settings
     try {
       const cachedSettings = localStorage.getItem("settings");
