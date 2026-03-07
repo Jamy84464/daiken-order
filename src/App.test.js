@@ -107,7 +107,7 @@ describe('App 基本載入', () => {
 
   test('顯示版本號', () => {
     render(<App />);
-    expect(screen.getByText(/v2\.9\.3/)).toBeInTheDocument();
+    expect(screen.getByText(/v2\.9\.4/)).toBeInTheDocument();
   });
 
   test('顯示月份公告', () => {
@@ -347,7 +347,6 @@ describe('管理員登入', () => {
   });
 
   test('密碼錯誤顯示錯誤提示', async () => {
-    window.alert = jest.fn();
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
 
@@ -356,7 +355,7 @@ describe('管理員登入', () => {
     fireEvent.click(screen.getByText('登入'));
 
     await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith('密碼錯誤');
+      expect(screen.getByText(/密碼錯誤/)).toBeInTheDocument();
     });
   });
 
