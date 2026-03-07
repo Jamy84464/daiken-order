@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, Component, memo } from "react";
+import { useState, useEffect, useRef, useMemo, Component, memo, useId, cloneElement, Children, isValidElement } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const VERSION = "v2.9.4";
@@ -44,6 +44,7 @@ function _notifySyncWarning(key) { _syncListeners.forEach(fn=>fn(key)); }
 
 // Optimistic Locking：記錄每個 key 載入時的 _v 版本號
 const _loadedVersions = {};
+const _pendingVerify = {};
 
 async function load(key) {
   try {
@@ -98,15 +99,23 @@ async function save(key, val) {
     _loadedVersions[key] = val._v;
   }
 
-  // Read-back 驗證（延遲 4 秒後讀回比對，只驗證最近一次 save）
-  setTimeout(async () => {
+  // Read-back 驗證（取消前次同 key 的驗證，避免 race condition）
+  if (_pendingVerify[key]) clearTimeout(_pendingVerify[key]);
+  _pendingVerify[key] = setTimeout(async () => {
+    delete _pendingVerify[key];
     if (_saveVersions[key] !== version) return;
+    // 針對帶版本號的資料，直接比對 _v 而非整個 JSON
     try {
       const remote = await load(key);
-      const remoteStr = JSON.stringify(remote);
-      if (remoteStr !== jsonStr) {
-        console.warn(`sync verify failed for "${key}": local/remote mismatch`);
+      if (needsVersion && remote && val && remote._v !== val._v) {
+        console.warn(`sync verify failed for "${key}": version mismatch (local=${val._v}, remote=${remote._v})`);
         _notifySyncWarning(key);
+      } else if (!needsVersion) {
+        const remoteStr = JSON.stringify(remote);
+        if (remoteStr !== jsonStr) {
+          console.warn(`sync verify failed for "${key}": local/remote mismatch`);
+          _notifySyncWarning(key);
+        }
       }
     } catch(e) { /* 驗證本身失敗，不處理 */ }
   }, 4000);
@@ -358,8 +367,8 @@ const globalCSS = `
 `;
 
 // ── UI ATOMS ──────────────────────────────────────────────────────────────────
-const Btn = ({onClick,children,color=C.green,outline,small,disabled,full,style={}})=>(
-  <button onClick={onClick} disabled={disabled} style={{
+const Btn = ({onClick,children,color=C.green,outline,small,disabled,full,style={},"aria-label":ariaLabel})=>(
+  <button onClick={onClick} disabled={disabled} aria-label={ariaLabel} style={{
     background:outline?"transparent":disabled?"#aaa":color,
     color:outline?color:C.white,
     border:`1.5px solid ${disabled?"#aaa":color}`,
@@ -369,36 +378,41 @@ const Btn = ({onClick,children,color=C.green,outline,small,disabled,full,style={
   }}>{children}</button>
 );
 
-const Field = ({label,required,children,error})=>(
-  <div style={{marginBottom:13}}>
-    <label style={{display:"block",fontSize:"0.77rem",color:C.muted,marginBottom:4,fontWeight:500}}>
-      {label}{required&&<span style={{color:C.red}}> *</span>}
-    </label>
-    {children}
-    {error&&<div style={{color:C.red,fontSize:"0.73rem",marginTop:3}}>{error}</div>}
-  </div>
-);
+function Field({label,required,children,error}) {
+  const id = useId();
+  const child = Children.only(children);
+  const linked = isValidElement(child) ? cloneElement(child, { id }) : child;
+  return (
+    <div style={{marginBottom:13}}>
+      <label htmlFor={id} style={{display:"block",fontSize:"0.77rem",color:C.muted,marginBottom:4,fontWeight:500}}>
+        {label}{required&&<span style={{color:C.red}}> *</span>}
+      </label>
+      {linked}
+      {error&&<div style={{color:C.red,fontSize:"0.73rem",marginTop:3}}>{error}</div>}
+    </div>
+  );
+}
 
 const inp = (extra={})=>({
   width:"100%",border:`1.5px solid ${C.border}`,borderRadius:8,
   padding:"8px 11px",fontSize:"0.86rem",background:C.cream,outline:"none",...extra,
 });
 
-const TextInput = ({value,onChange,placeholder,type="text",onFocus,onBlur})=>(
-  <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+const TextInput = ({value,onChange,placeholder,type="text",onFocus,onBlur,id})=>(
+  <input id={id} type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
     style={inp()} onFocus={e=>{e.target.style.borderColor=C.green;onFocus&&onFocus(e)}}
     onBlur={e=>{e.target.style.borderColor=C.border;onBlur&&onBlur(e)}} />
 );
 
-const SelInput = ({value,onChange,options})=>(
-  <select value={value} onChange={e=>onChange(e.target.value)} style={inp()}>
+const SelInput = ({value,onChange,options,id})=>(
+  <select id={id} value={value} onChange={e=>onChange(e.target.value)} style={inp()}>
     <option value="">請選擇</option>
     {options.map(o=><option key={o.v||o} value={o.v||o}>{o.l||o}</option>)}
   </select>
 );
 
-const TextArea = ({value,onChange,rows=3,placeholder})=>(
-  <textarea value={value} onChange={e=>onChange(e.target.value)} rows={rows} placeholder={placeholder}
+const TextArea = ({value,onChange,rows=3,placeholder,id})=>(
+  <textarea id={id} value={value} onChange={e=>onChange(e.target.value)} rows={rows} placeholder={placeholder}
     style={{...inp(),resize:"vertical"}} />
 );
 
@@ -439,7 +453,7 @@ function SyncStatus() {
           <strong style={{color:C.red}}>⚠️ 雲端同步異常</strong><br/>
           部分資料可能未成功寫入 Google Sheets，請稍後重新整理頁面確認。
         </div>
-        <button onClick={()=>setWarnings([])}
+        <button onClick={()=>setWarnings([])} aria-label="關閉"
           style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:"1.1rem",flexShrink:0}}>✕</button>
       </div>
     </div>
@@ -449,11 +463,11 @@ function SyncStatus() {
 // Email Modal
 function EmailModal({title,content,onClose}) {
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div role="dialog" aria-label={title} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div className="pop" style={{background:C.white,borderRadius:18,width:"100%",maxWidth:520,maxHeight:"85vh",overflow:"auto",boxShadow:"0 8px 40px rgba(0,0,0,.15)"}}>
         <div style={{background:C.green,color:C.white,padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",borderRadius:"18px 18px 0 0"}}>
           <span className="serif" style={{fontWeight:700}}>{title}</span>
-          <button onClick={onClose} style={{background:"none",border:"none",color:C.white,cursor:"pointer",fontSize:"1.2rem"}}>✕</button>
+          <button onClick={onClose} aria-label="關閉" style={{background:"none",border:"none",color:C.white,cursor:"pointer",fontSize:"1.2rem"}}>✕</button>
         </div>
         <div style={{padding:20}}>
           <textarea readOnly value={content} rows={16}
@@ -472,7 +486,7 @@ function EmailModal({title,content,onClose}) {
 // Confirm Modal
 function ConfirmModal({msg,onOk,onCancel}) {
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div role="dialog" aria-label="確認對話框" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div className="pop" style={{background:C.white,borderRadius:16,padding:28,maxWidth:380,width:"100%",textAlign:"center"}}>
         <div style={{fontSize:"0.92rem",lineHeight:1.8,marginBottom:20}}>{msg}</div>
         <div style={{display:"flex",gap:10,justifyContent:"center"}}>
@@ -506,7 +520,7 @@ function Toast() {
           boxShadow: "0 4px 20px rgba(0,0,0,.12)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10,
         }}>
           <span>{t.type === "success" ? "✅" : "⚠️"} {t.msg}</span>
-          <button onClick={() => setItems(prev => prev.filter(x => x.id !== t.id))}
+          <button onClick={() => setItems(prev => prev.filter(x => x.id !== t.id))} aria-label="關閉"
             style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "1rem", flexShrink: 0 }}>✕</button>
         </div>
       ))}
@@ -543,9 +557,9 @@ const ProductCard = memo(function ProductCard({ product: p, quantity: q, onQuant
       {p.outOfStock
         ? <div style={{ background: "#eee", color: C.muted, borderRadius: 7, padding: "6px 0", textAlign: "center", fontSize: "0.8rem" }}>暫時缺貨</div>
         : <div style={{ display: "flex", border: `1.5px solid ${C.border}`, borderRadius: 7, overflow: "hidden", width: "100%" }}>
-            <button onClick={() => onQuantityChange(q - 1)} style={{ flexShrink: 0, width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, background: C.cream, border: "none", cursor: "pointer", color: C.green, fontWeight: 700, fontSize: isMobile ? "0.9rem" : "1rem" }}>−</button>
-            <input type="number" value={q} onChange={e => onQuantityChange(parseInt(e.target.value) || 0)} style={{ flex: 1, minWidth: 0, width: 0, border: "none", textAlign: "center", fontSize: isMobile ? "0.82rem" : "0.88rem", fontWeight: 600, background: C.white, outline: "none" }} />
-            <button onClick={() => onQuantityChange(q + 1)} style={{ flexShrink: 0, width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, background: C.cream, border: "none", cursor: "pointer", color: C.green, fontWeight: 700, fontSize: isMobile ? "0.9rem" : "1rem" }}>＋</button>
+            <button onClick={() => onQuantityChange(q - 1)} aria-label={`減少 ${p.name} 數量`} style={{ flexShrink: 0, width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, background: C.cream, border: "none", cursor: "pointer", color: C.green, fontWeight: 700, fontSize: isMobile ? "0.9rem" : "1rem" }}>−</button>
+            <input type="number" value={q} onChange={e => onQuantityChange(parseInt(e.target.value) || 0)} aria-label={`${p.name} 數量`} style={{ flex: 1, minWidth: 0, width: 0, border: "none", textAlign: "center", fontSize: isMobile ? "0.82rem" : "0.88rem", fontWeight: 600, background: C.white, outline: "none" }} />
+            <button onClick={() => onQuantityChange(q + 1)} aria-label={`增加 ${p.name} 數量`} style={{ flexShrink: 0, width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, background: C.cream, border: "none", cursor: "pointer", color: C.green, fontWeight: 700, fontSize: isMobile ? "0.9rem" : "1rem" }}>＋</button>
           </div>
       }
     </div>
@@ -1857,3 +1871,8 @@ function AppWithBoundary() {
 }
 
 export { AppWithBoundary as default };
+
+// ── TEST EXPORTS（僅供單元測試使用）────────────────────────────────────────────
+export { isValidEmail, orderKey, nowStr, dataEntries, flatProducts };
+export { emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail };
+export { save, load, _saveVersions, _pendingVerify };
