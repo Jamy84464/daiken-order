@@ -33,6 +33,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npx eslint src/ --max-warnings 0
+
       - name: Run tests
         run: npx react-scripts test --watchAll=false
 
@@ -41,6 +44,12 @@ jobs:
         env:
           REACT_APP_GAS_URL: ${{ secrets.REACT_APP_GAS_URL }}
           REACT_APP_WRITE_TOKEN: ${{ secrets.REACT_APP_WRITE_TOKEN }}
+
+      - name: Verify build output
+        run: |
+          test -f build/index.html || (echo "Missing index.html" && exit 1)
+          test -d build/static/js || (echo "Missing JS bundle" && exit 1)
+          test -d build/static/css || (echo "Missing CSS bundle" && exit 1)
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
