@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Component, memo } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.9.3";
+const VERSION = "v2.9.4";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -11,6 +11,21 @@ if (!GAS_URL || !WRITE_TOKEN) console.warn("Missing REACT_APP_GAS_URL or REACT_A
 
 // Email 格式驗證（要求 local 至少 2 字元、domain 至少有一個點、TLD 至少 2 字元）
 const isValidEmail = (email) => /^[^\s@]{2,}@[^\s@]+\.[^\s@]{2,}$/.test(email);
+
+// ── UTILITY HELPERS ──────────────────────────────────────────────────────────
+// 產生訂單 localStorage/GAS key
+function orderKey(year, month) {
+  return `orders_${year}_${String(month).padStart(2, "0")}`;
+}
+// 當前時間字串（zh-TW 格式）
+function nowStr() {
+  return new Date().toLocaleString("zh-TW");
+}
+
+// ── TOAST 通知系統 ──────────────────────────────────────────────────────────
+let _toastListeners = [];
+function onToast(fn) { _toastListeners.push(fn); return () => { _toastListeners = _toastListeners.filter(f => f !== fn); }; }
+function showToast(msg, type = "error") { _toastListeners.forEach(fn => fn({ msg, type })); }
 
 // 過濾掉 _v 等 meta 欄位，只保留真正的資料項目
 function dataEntries(obj) {
@@ -469,6 +484,102 @@ function ConfirmModal({msg,onOk,onCancel}) {
   );
 }
 
+// ── TOAST 通知元件 ──────────────────────────────────────────────────────────
+function Toast() {
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    return onToast(({ msg, type }) => {
+      const id = Date.now();
+      setItems(prev => [...prev, { id, msg, type }]);
+      setTimeout(() => setItems(prev => prev.filter(t => t.id !== id)), 4000);
+    });
+  }, []);
+  if (items.length === 0) return null;
+  return (
+    <div style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 4000, display: "flex", flexDirection: "column", gap: 8, maxWidth: 420, width: "calc(100% - 32px)" }}>
+      {items.map(t => (
+        <div key={t.id} className="pop" style={{
+          background: t.type === "success" ? C.gp : "#fff5f5",
+          border: `1.5px solid ${t.type === "success" ? C.gl : C.red}`,
+          color: t.type === "success" ? C.green : C.red,
+          borderRadius: 10, padding: "10px 16px", fontSize: "0.84rem", lineHeight: 1.6,
+          boxShadow: "0 4px 20px rgba(0,0,0,.12)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10,
+        }}>
+          <span>{t.type === "success" ? "✅" : "⚠️"} {t.msg}</span>
+          <button onClick={() => setItems(prev => prev.filter(x => x.id !== t.id))}
+            style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: "1rem", flexShrink: 0 }}>✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── STATUS BADGE ─────────────────────────────────────────────────────────────
+const StatusBadge = memo(function StatusBadge({ status }) {
+  const isHandled = status === "handled";
+  return (
+    <span style={{
+      background: isHandled ? "rgba(183,121,31,.8)" : "rgba(255,255,255,.2)",
+      color: C.white, padding: "3px 10px", borderRadius: 7, fontSize: "0.73rem",
+    }}>
+      {isHandled ? "✅ 已處理" : "⏳ 待處理"}
+    </span>
+  );
+});
+
+// ── PRODUCT CARD ─────────────────────────────────────────────────────────────
+const ProductCard = memo(function ProductCard({ product: p, quantity: q, onQuantityChange, isMobile, showLink = true }) {
+  return (
+    <div style={{ background: p.outOfStock ? "#f5f5f5" : q > 0 ? "#f0faf4" : C.white, border: `1.5px solid ${q > 0 ? C.green : C.border}`, borderRadius: isMobile ? 10 : 12, padding: isMobile ? 10 : 13, opacity: p.outOfStock ? .6 : 1, transition: "all .15s" }}>
+      {showLink ? (
+        <a href={p.url || BASE_URL} target="_blank" rel="noreferrer" style={{ fontSize: isMobile ? "0.76rem" : "0.83rem", fontWeight: 500, lineHeight: 1.4, display: "block", minHeight: "2.2em", color: C.text, textDecoration: "none" }}
+          onMouseEnter={e => e.currentTarget.style.color = C.gl} onMouseLeave={e => e.currentTarget.style.color = C.text}>
+          {p.name} 🔗
+        </a>
+      ) : (
+        <div style={{ fontSize: "0.82rem", fontWeight: 500, lineHeight: 1.4, marginBottom: 6 }}>{p.name}</div>
+      )}
+      <div className="serif" style={{ fontSize: isMobile ? "0.9rem" : "1rem", fontWeight: 700, color: C.green, margin: isMobile ? "4px 0" : "6px 0" }}>NT${p.price.toLocaleString()}</div>
+      {p.outOfStock
+        ? <div style={{ background: "#eee", color: C.muted, borderRadius: 7, padding: "6px 0", textAlign: "center", fontSize: "0.8rem" }}>暫時缺貨</div>
+        : <div style={{ display: "flex", border: `1.5px solid ${C.border}`, borderRadius: 7, overflow: "hidden", width: "100%" }}>
+            <button onClick={() => onQuantityChange(q - 1)} style={{ flexShrink: 0, width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, background: C.cream, border: "none", cursor: "pointer", color: C.green, fontWeight: 700, fontSize: isMobile ? "0.9rem" : "1rem" }}>−</button>
+            <input type="number" value={q} onChange={e => onQuantityChange(parseInt(e.target.value) || 0)} style={{ flex: 1, minWidth: 0, width: 0, border: "none", textAlign: "center", fontSize: isMobile ? "0.82rem" : "0.88rem", fontWeight: 600, background: C.white, outline: "none" }} />
+            <button onClick={() => onQuantityChange(q + 1)} style={{ flexShrink: 0, width: isMobile ? 28 : 32, height: isMobile ? 28 : 32, background: C.cream, border: "none", cursor: "pointer", color: C.green, fontWeight: 700, fontSize: isMobile ? "0.9rem" : "1rem" }}>＋</button>
+          </div>
+      }
+    </div>
+  );
+});
+
+// ── ERROR BOUNDARY ──────────────────────────────────────────────────────────
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, info) { console.warn("ErrorBoundary caught:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: "100vh", background: C.cream, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ background: C.white, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", textAlign: "center", border: `1.5px solid ${C.border}`, boxShadow: "0 4px 20px rgba(0,0,0,.07)" }}>
+            <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>😵</div>
+            <div className="serif" style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 10, color: C.red }}>發生錯誤</div>
+            <div style={{ fontSize: "0.85rem", color: C.muted, lineHeight: 1.8, marginBottom: 20 }}>
+              應用程式遇到未預期的錯誤，請重新整理頁面。<br />
+              如持續發生請聯絡管理員。
+            </div>
+            <div style={{ fontSize: "0.75rem", color: C.muted, background: "#f5f5f5", borderRadius: 8, padding: "8px 12px", marginBottom: 16, fontFamily: "monospace", textAlign: "left", wordBreak: "break-all" }}>
+              {this.state.error?.message || "Unknown error"}
+            </div>
+            <Btn onClick={() => window.location.reload()} color={C.green}>🔄 重新整理</Btn>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ── SHOP VIEW ─────────────────────────────────────────────────────────────────
 function ShopView({settings,cats,onOrderSuccess}) {
   const [tab,setTab]=useState("all");
@@ -535,7 +646,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
     if(!validate()) return;
     setSubmitting(true);
     try {
-      const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+      const key=orderKey(settings.year, settings.month);
       const existing = await load(key)||{};
       const ek=form.email.trim().toLowerCase();
       const order = {
@@ -544,12 +655,11 @@ function ShopView({settings,cats,onOrderSuccess}) {
         recipientName:form.recipientName, recipientAddress:form.recipientAddress, recipientPhone:form.recipientPhone,
         cart, total,
         status:"pending",
-        createdAt:new Date().toLocaleString("zh-TW"),
+        createdAt:nowStr(),
         updatedAt:null,
       };
       existing[ek] = order;
       await save(key, existing);
-      // 更新歷史訂購人清單（email 為唯一 key，name/phone 有異動則更新）
       const custs = await load("customers")||{};
       custs[ek] = {
         name:    form.ordererName,
@@ -561,10 +671,9 @@ function ShopView({settings,cats,onOrderSuccess}) {
         lastRecipientPhone:   form.recipientPhone,
         lastOrder:`${settings.year}/${settings.month}`,
         orderCount:(custs[ek]?.orderCount||0)+1,
-        firstOrderAt: custs[ek]?.firstOrderAt||new Date().toLocaleString("zh-TW"),
+        firstOrderAt: custs[ek]?.firstOrderAt||nowStr(),
       };
       await save("customers",custs);
-      // 自動寄出訂購確認信
       const emailContent = genConfirmEmail(order,cats);
       requestSendEmail({
         to: ek,
@@ -579,8 +688,8 @@ function ShopView({settings,cats,onOrderSuccess}) {
       setEmailLookupDone(false);
       setEmailChecked(false);
     } catch(err) {
-      console.error("Submit error:", err);
-      alert("送出時發生錯誤，您的表單資料已保留，請再試一次。\n" + err.message);
+      console.warn("Submit error:", err);
+      showToast("送出時發生錯誤，您的表單資料已保留，請再試一次。");
       setSubmitting(false);
       return; // 保留表單與購物車資料，不清空
     }
@@ -622,26 +731,9 @@ function ShopView({settings,cats,onOrderSuccess}) {
           <div key={cat.key} style={{marginBottom:26}}>
             <div className="serif" style={{fontSize:"0.93rem",fontWeight:600,color:C.green,marginBottom:10,paddingBottom:7,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
             <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(195px,1fr))",gap:isMobile?8:10}}>
-              {cat.products.map(p=>{
-                const q=cart[p.id]||0;
-                return (
-                  <div key={p.id} style={{background:p.outOfStock?"#f5f5f5":q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:isMobile?10:12,padding:isMobile?10:13,opacity:p.outOfStock?.6:1,transition:"all .15s"}}>
-                    <a href={p.url||BASE_URL} target="_blank" rel="noreferrer" style={{fontSize:isMobile?"0.76rem":"0.83rem",fontWeight:500,lineHeight:1.4,display:"block",minHeight:"2.2em",color:C.text,textDecoration:"none"}}
-                      onMouseEnter={e=>e.currentTarget.style.color=C.gl} onMouseLeave={e=>e.currentTarget.style.color=C.text}>
-                      {p.name} 🔗
-                    </a>
-                    <div className="serif" style={{fontSize:isMobile?"0.9rem":"1rem",fontWeight:700,color:C.green,margin:isMobile?"4px 0":"6px 0"}}>NT${p.price.toLocaleString()}</div>
-                    {p.outOfStock
-                      ? <div style={{background:"#eee",color:C.muted,borderRadius:7,padding:"6px 0",textAlign:"center",fontSize:"0.8rem"}}>暫時缺貨</div>
-                      : <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden",width:"100%"}}>
-                          <button onClick={()=>setQ(p.id,q-1)} style={{flexShrink:0,width:isMobile?28:32,height:isMobile?28:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:isMobile?"0.9rem":"1rem"}}>−</button>
-                          <input type="number" value={q} onChange={e=>setQ(p.id,parseInt(e.target.value)||0)} style={{flex:1,minWidth:0,width:0,border:"none",textAlign:"center",fontSize:isMobile?"0.82rem":"0.88rem",fontWeight:600,background:C.white,outline:"none"}} />
-                          <button onClick={()=>setQ(p.id,q+1)} style={{flexShrink:0,width:isMobile?28:32,height:isMobile?28:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700,fontSize:isMobile?"0.9rem":"1rem"}}>＋</button>
-                        </div>
-                    }
-                  </div>
-                );
-              })}
+              {cat.products.map(p=>(
+                <ProductCard key={p.id} product={p} quantity={cart[p.id]||0} onQuantityChange={q=>setQ(p.id,q)} isMobile={isMobile} />
+              ))}
             </div>
           </div>
         ))}
@@ -744,7 +836,7 @@ function MyOrderView({settings,cats}) {
   const lookup=async()=>{
     if(!email.trim()){return;}
     setLoading(true);setNotFound(false);setOrder(null);setSaved(false);
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     const orders=await load(key)||{};
     const found=orders[email.toLowerCase().trim()];
     setLoading(false);
@@ -758,14 +850,14 @@ function MyOrderView({settings,cats}) {
   };
 
   const handleSave=async()=>{
-    if(!Object.values(cart).some(q=>q>0)){alert("購物車是空的！");return;}
+    if(!Object.values(cart).some(q=>q>0)){showToast("購物車是空的！");return;}
     setSaving(true);
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     const orders=await load(key)||{};
     const oldOrder=orders[email.toLowerCase()];
     const updated={...oldOrder, ...form, cart,
       total:Object.entries(cart).filter(([,q])=>q>0).reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0),
-      updatedAt:new Date().toLocaleString("zh-TW"),
+      updatedAt:nowStr(),
     };
     orders[email.toLowerCase()]=updated;
     await save(key,orders);
@@ -796,20 +888,11 @@ function MyOrderView({settings,cats}) {
               <div key={cat.key} style={{marginBottom:22}}>
                 <div className="serif" style={{fontSize:"0.9rem",fontWeight:600,color:C.green,marginBottom:9,paddingBottom:6,borderBottom:`2px solid ${C.gp}`}}>{cat.label}</div>
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:9}}>
-                  {visibleProds.map(p=>{
-                    const q=cart[p.id]||0;
-                    return (
-                      <div key={p.id} style={{background:q>0?"#f0faf4":C.white,border:`1.5px solid ${q>0?C.green:C.border}`,borderRadius:11,padding:12}}>
-                        <div style={{fontSize:"0.82rem",fontWeight:500,lineHeight:1.4,marginBottom:6}}>{p.name}</div>
-                        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,color:C.green,marginBottom:6}}>NT${p.price.toLocaleString()}</div>
-                        <div style={{display:"flex",border:`1.5px solid ${C.border}`,borderRadius:7,overflow:"hidden",width:"100%"}}>
-                          <button onClick={()=>setCart(prev=>({...prev,[p.id]:Math.max(0,(prev[p.id]||0)-1)}))} style={{flexShrink:0,width:32,height:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>−</button>
-                          <input type="number" value={q} onChange={e=>setCart(prev=>({...prev,[p.id]:Math.max(0,parseInt(e.target.value)||0)}))} style={{flex:1,minWidth:0,border:"none",textAlign:"center",fontSize:"0.86rem",fontWeight:600,background:C.white,outline:"none"}} />
-                          <button onClick={()=>setCart(prev=>({...prev,[p.id]:(prev[p.id]||0)+1}))} style={{flexShrink:0,width:32,height:32,background:C.cream,border:"none",cursor:"pointer",color:C.green,fontWeight:700}}>＋</button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {visibleProds.map(p=>(
+                    <ProductCard key={p.id} product={p} quantity={cart[p.id]||0}
+                      onQuantityChange={q=>setCart(prev=>({...prev,[p.id]:Math.max(0,Math.min(99,q))}))}
+                      isMobile={false} showLink={false} />
+                  ))}
                 </div>
               </div>
             );
@@ -875,9 +958,7 @@ function MyOrderView({settings,cats}) {
               <div className="serif" style={{fontWeight:700,fontSize:"0.97rem"}}>{order.ordererName} 的訂單</div>
               <div style={{fontSize:"0.72rem",opacity:.8,marginTop:2}}>{order.createdAt}{order.updatedAt&&` | 更新：${order.updatedAt}`}</div>
             </div>
-            <span style={{background:order.status==="handled"?"rgba(183,121,31,.8)":"rgba(255,255,255,.2)",color:C.white,padding:"3px 10px",borderRadius:7,fontSize:"0.73rem"}}>
-              {order.status==="handled"?"✅ 已處理":"⏳ 待處理"}
-            </span>
+            <StatusBadge status={order.status} />
           </div>
           <div style={{padding:"15px 18px"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"7px 14px",marginBottom:13,fontSize:"0.82rem"}}>
@@ -926,9 +1007,9 @@ function AdminView({settings,setSettings,cats,setCats}) {
       const res=await fetch(`${GAS_URL}?action=verifyAdmin&pw=${encodeURIComponent(pw)}`);
       const json=await res.json();
       if(json.success && json.authed){setAuthed(true);}
-      else{alert("密碼錯誤");}
+      else{showToast("密碼錯誤");}
     } catch(e){
-      alert("驗證失敗，請確認網路連線");
+      showToast("驗證失敗，請確認網路連線");
     }
     setLoggingIn(false);
   };
@@ -1135,13 +1216,13 @@ function OrdersTab({settings,cats}) {
   const [busyOp,setBusyOp]=useState(null); // 正在操作的 email，防止連點競態
   const fp=useMemo(()=>flatProducts(cats),[cats]);
   useEffect(()=>{
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     load(key).then(o=>setOrders(o||{}));
   },[settings]);
   const toggleStatus=async(email)=>{
     if(busyOp) return;
     setBusyOp(email);
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     const upd={...orders,[email]:{...orders[email],status:orders[email].status==="handled"?"pending":"handled"}};
     setOrders(upd);await save(key,upd);
     setBusyOp(null);
@@ -1149,7 +1230,7 @@ function OrdersTab({settings,cats}) {
   const deleteOrder=async(email)=>{
     if(busyOp) return;
     setBusyOp(email);
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     const upd={...orders};
     delete upd[email];
     setOrders(upd);await save(key,upd);
@@ -1291,7 +1372,7 @@ function CloseoutTab({settings,setSettings,cats}) {
   const fp=useMemo(()=>flatProducts(cats),[cats]);
 
   useEffect(()=>{
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     load(key).then(o=>setOrders(o||{}));
   },[settings]);
 
@@ -1303,7 +1384,7 @@ function CloseoutTab({settings,setSettings,cats}) {
     const monthKey=`${settings.year}_${String(settings.month).padStart(2,"0")}`;
     if(!h.find(x=>x.key===monthKey)){
       const list=Object.values(dataEntries(orders||{}));
-      h.push({key:monthKey,year:settings.year,month:settings.month,closedAt:new Date().toLocaleString("zh-TW"),orderCount:list.length,totalAmt:list.reduce((s,o)=>s+o.total,0)});
+      h.push({key:monthKey,year:settings.year,month:settings.month,closedAt:nowStr(),orderCount:list.length,totalAmt:list.reduce((s,o)=>s+o.total,0)});
       await save("history",h);
     }
     setConfirm(false);setDone(true);
@@ -1415,7 +1496,7 @@ function EmailsTab({settings,cats}) {
   const bank={...DEFAULT_BANK,...(settings.bank||{})};
 
   useEffect(()=>{
-    const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const key=orderKey(settings.year, settings.month);
     load(key).then(o=>setOrders(o||{}));
     load("customers").then(c=>setAllCustomers(c||{}));
   },[settings]);
@@ -1440,7 +1521,7 @@ function EmailsTab({settings,cats}) {
   };
 
   const sendNotice=async(target)=>{
-    if(!noticeText.trim()){alert("請先輸入通知內容");return;}
+    if(!noticeText.trim()){showToast("請先輸入通知內容");return;}
     const key=target.email+"_notice";
     markSending(key,"sending");
     const body=genNoticeEmail(target.name||target.ordererName, noticeText);
@@ -1449,7 +1530,7 @@ function EmailsTab({settings,cats}) {
   };
 
   const sendAllNotice=async(targets)=>{
-    if(!noticeText.trim()){alert("請先輸入通知內容");return;}
+    if(!noticeText.trim()){showToast("請先輸入通知內容");return;}
     if(!targets.length) return;
     setSendingAll(true);
     for(const t of targets){
@@ -1561,7 +1642,7 @@ function NewMonthTab({settings,setSettings}) {
   const checkAndConfirm=async()=>{
     setChecking(true);
     setBlockReason("");
-    const curKey=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
+    const curKey=orderKey(settings.year, settings.month);
     const curOrders=await load(curKey)||{};
     const pendingList=Object.values(dataEntries(curOrders)).filter(o=>o.status!=="handled");
     setChecking(false);
@@ -1628,7 +1709,7 @@ function NewMonthTab({settings,setSettings}) {
 }
 
 // ── APP ROOT ──────────────────────────────────────────────────────────────────
-export default function App() {
+function App() {
   const [view,setView]=useState("shop");
   const [settings,setSettings]=useState(null);
   const [cats,setCats]=useState(null);
@@ -1765,6 +1846,14 @@ export default function App() {
         </div>
       </div>
       <SyncStatus/>
+      <Toast/>
     </>
   );
 }
+
+// ── WRAPPED EXPORT（ErrorBoundary）────────────────────────────────────────────
+function AppWithBoundary() {
+  return <ErrorBoundary><App /></ErrorBoundary>;
+}
+
+export { AppWithBoundary as default };
