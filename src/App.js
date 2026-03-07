@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.9.1";
+const VERSION = "v2.9.2";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -336,6 +336,9 @@ const globalCSS = `
   .pop{animation:pop .25s cubic-bezier(.34,1.56,.64,1)}
   a{color:${C.gl};text-decoration:none}
   a:hover{text-decoration:underline}
+  @media screen and (max-width:768px){
+    input,select,textarea{font-size:16px!important}
+  }
 `;
 
 // ── UI ATOMS ──────────────────────────────────────────────────────────────────
@@ -596,7 +599,7 @@ function ShopView({settings,cats,onOrderSuccess}) {
           </div>
           <button onClick={()=>cartRef.current?.scrollIntoView({behavior:"smooth"})}
             style={{background:"rgba(255,255,255,.2)",color:C.white,border:"1px solid rgba(255,255,255,.4)",borderRadius:8,padding:"7px 14px",fontSize:"0.82rem",cursor:"pointer",fontFamily:"'Noto Sans TC',sans-serif",fontWeight:600}}>
-            前往結帳 ▼
+            送出訂單 ▼
           </button>
         </div>
       )}
@@ -757,19 +760,24 @@ function MyOrderView({settings,cats}) {
     setSaving(true);
     const key=`orders_${settings.year}_${String(settings.month).padStart(2,"0")}`;
     const orders=await load(key)||{};
-    const updated={...orders[email.toLowerCase()], ...form, cart,
+    const oldOrder=orders[email.toLowerCase()];
+    const updated={...oldOrder, ...form, cart,
       total:Object.entries(cart).filter(([,q])=>q>0).reduce((s,[id,q])=>s+(fp[id]?.price||0)*q,0),
       updatedAt:new Date().toLocaleString("zh-TW"),
     };
     orders[email.toLowerCase()]=updated;
     await save(key,orders);
-    // 修改後重新寄送訂購確認信
-    requestSendEmail({
-      to: email.toLowerCase(),
-      subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂單已更新 — ${updated.ordererName}`,
-      body: genConfirmEmail(updated, cats),
-      isHtml: true,
-    });
+    // 比對是否有實際異動（購物車或收件資訊），有變才寄信
+    const cartChanged = JSON.stringify(oldOrder?.cart) !== JSON.stringify(cart);
+    const infoChanged = oldOrder?.recipientName!==form.recipientName || oldOrder?.recipientAddress!==form.recipientAddress || oldOrder?.recipientPhone!==form.recipientPhone;
+    if(cartChanged || infoChanged){
+      requestSendEmail({
+        to: email.toLowerCase(),
+        subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂單已更新 — ${updated.ordererName}`,
+        body: genConfirmEmail(updated, cats),
+        isHtml: true,
+      });
+    }
     setSaving(false);setOrder(updated);setEditMode(false);setSaved(true);
   };
 
@@ -1630,6 +1638,9 @@ export default function App() {
   useEffect(()=>{
     // ── Cache-first：先從 localStorage 立即渲染，再背景從 GAS 更新 ──
     document.title = "大研生醫團購";
+    // 防止 iOS Safari 在 input focus 時自動放大
+    const vp = document.querySelector('meta[name="viewport"]');
+    if (vp) vp.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1");
     // Settings
     try {
       const cachedSettings = localStorage.getItem("settings");
