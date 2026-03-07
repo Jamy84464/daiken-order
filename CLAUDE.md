@@ -1,8 +1,8 @@
-# CLAUDE.md — 大墾訂購系統 (Daiken Order)
+# CLAUDE.md — 大研訂購系統 (Daiken Order)
 
 ## 專案概述
 
-這是一個基於 React 的健康食品線上訂購系統，用於管理產品目錄、客戶訂單、Email 通知與月結作業。後端透過 Google Apps Script (GAS) 連接 Google Sheets 進行資料儲存。部署於 GitHub Pages。
+這是大研生醫基於 React 的健康食品線上訂購系統，用於管理產品目錄、客戶訂單、Email 通知與月結作業。後端透過 Google Apps Script (GAS) 連接 Google Sheets 進行資料儲存。部署於 GitHub Pages。
 
 - **目前版本：** v2.9.2
 - **線上位址：** https://jamy84464.github.io/daiken-order
