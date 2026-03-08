@@ -5,7 +5,7 @@
 import {
   isValidEmail, orderKey, nowStr, dataEntries, flatProducts,
   emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail,
-  save, load, _saveVersions, _pendingVerify,
+  save, load, _pendingVerify,
 } from './App';
 
 // ── Mock 環境 ──────────────────────────────────────────────────────────────────
