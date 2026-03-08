@@ -106,7 +106,7 @@ describe('App 基本載入', () => {
 
   test('顯示版本號', () => {
     render(<App />);
-    expect(screen.getByText(/v2\.9\.5/)).toBeInTheDocument();
+    expect(screen.getByText(/v2\.9\.6/)).toBeInTheDocument();
   });
 
   test('顯示月份公告', () => {

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, Component, memo, useId, cloneElement, Children, isValidElement } from "react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
-const VERSION = "v2.9.5";
+const VERSION = "v2.9.6";
 const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 const DEFAULT_BANK = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -122,48 +122,129 @@ async function save(key, val) {
 }
 
 // ── BACKUP（備份與回復）──────────────────────────────────────────────────
-// 建立備份：收集所有關鍵資料，只保留最新一份
+// 使用多個 key 分散儲存，避免單一欄位空間不足
+// backup_meta: 備份資訊（時間、標籤、版本、訂單 key 列表）
+// backup_settings / backup_cats / backup_customers / backup_history: 各自獨立
+// backup_orders_YYYY_MM: 每月訂單各自一個 key
 async function createBackup(label) {
   const settingsData = await load("settings");
   const catsData = await load("cats");
   const customersData = await load("customers");
   const historyData = await load("history") || [];
   // 收集所有月份的訂單
-  const orderKeys = [];
-  if (settingsData) {
-    orderKeys.push(orderKey(settingsData.year, settingsData.month));
-  }
-  historyData.forEach(h => { if (h.key) orderKeys.push(`orders_${h.key}`); });
-  const uniqueKeys = [...new Set(orderKeys)];
-  const ordersData = {};
+  const oKeys = [];
+  if (settingsData) oKeys.push(orderKey(settingsData.year, settingsData.month));
+  historyData.forEach(h => { if (h.key) oKeys.push(`orders_${h.key}`); });
+  const uniqueKeys = [...new Set(oKeys)];
+  const savedOrderKeys = [];
   for (const k of uniqueKeys) {
     const d = await load(k);
-    if (d && Object.keys(dataEntries(d)).length > 0) ordersData[k] = d;
+    if (d && Object.keys(dataEntries(d)).length > 0) {
+      await save(`backup_${k}`, d);
+      savedOrderKeys.push(k);
+    }
   }
-  const backup = {
+  // 分別儲存各資料區塊
+  await save("backup_settings", settingsData);
+  await save("backup_cats", catsData);
+  await save("backup_customers", customersData);
+  await save("backup_history", historyData);
+  // 儲存 meta 資訊
+  const meta = {
     label: label || "手動備份",
     createdAt: nowStr(),
     timestamp: Date.now(),
     version: VERSION,
-    data: { settings: settingsData, cats: catsData, customers: customersData, history: historyData, orders: ordersData }
+    orderKeys: savedOrderKeys
   };
-  await save("backup", backup);
-  return backup;
+  await save("backup_meta", meta);
+  return meta;
 }
 
-// 從備份回復
-async function restoreBackup(backup) {
-  if (!backup || !backup.data) throw new Error("無效的備份資料");
-  const { settings, cats, customers, history, orders } = backup.data;
-  if (settings) await save("settings", settings);
-  if (cats) await save("cats", cats);
-  if (customers) await save("customers", customers);
-  if (history) await save("history", history);
-  if (orders) {
-    for (const [k, v] of Object.entries(orders)) {
-      await save(k, v);
+// 從備份回復（支援新格式多 key 與舊格式單 key）
+async function restoreBackup(backupOrMeta) {
+  // 舊格式：單一 backup key 含 data 欄位
+  if (backupOrMeta && backupOrMeta.data) {
+    const { settings, cats, customers, history, orders } = backupOrMeta.data;
+    if (settings) await save("settings", settings);
+    if (cats) await save("cats", cats);
+    if (customers) await save("customers", customers);
+    if (history) await save("history", history);
+    if (orders) { for (const [k, v] of Object.entries(orders)) await save(k, v); }
+    return;
+  }
+  // 新格式：從多個 backup_* key 讀取
+  const meta = backupOrMeta;
+  if (!meta || !meta.createdAt) throw new Error("無效的備份資料");
+  const [s, ca, cu, h] = await Promise.all([
+    load("backup_settings"), load("backup_cats"), load("backup_customers"), load("backup_history")
+  ]);
+  if (s) await save("settings", s);
+  if (ca) await save("cats", ca);
+  if (cu) await save("customers", cu);
+  if (h) await save("history", h);
+  if (meta.orderKeys) {
+    for (const k of meta.orderKeys) {
+      const d = await load(`backup_${k}`);
+      if (d) await save(k, d);
     }
   }
+}
+
+// 載入備份 meta（優先新格式，fallback 舊格式）
+async function loadBackupMeta() {
+  const meta = await load("backup_meta");
+  if (meta && meta.createdAt) return meta;
+  // fallback: 舊格式
+  const old = await load("backup");
+  if (old && old.createdAt) return old;
+  return null;
+}
+
+// 匯出完整備份為單一物件（供下載用）
+async function exportFullBackup() {
+  const meta = await loadBackupMeta();
+  if (!meta) return null;
+  // 舊格式已包含所有資料
+  if (meta.data) return meta;
+  // 新格式：組合所有 backup_* key
+  const [s, ca, cu, h] = await Promise.all([
+    load("backup_settings"), load("backup_cats"), load("backup_customers"), load("backup_history")
+  ]);
+  const orders = {};
+  if (meta.orderKeys) {
+    for (const k of meta.orderKeys) {
+      const d = await load(`backup_${k}`);
+      if (d) orders[k] = d;
+    }
+  }
+  return { ...meta, data: { settings: s, cats: ca, customers: cu, history: h, orders } };
+}
+
+// 從匯入的檔案回存為多 key 格式
+async function importBackupFile(fileData) {
+  if (!fileData || !fileData.createdAt) throw new Error("格式不正確");
+  // 如果是舊格式（含 data），轉存為多 key
+  if (fileData.data) {
+    const { settings, cats, customers, history, orders } = fileData.data;
+    if (settings) await save("backup_settings", settings);
+    if (cats) await save("backup_cats", cats);
+    if (customers) await save("backup_customers", customers);
+    if (history) await save("backup_history", history);
+    const oKeys = [];
+    if (orders) {
+      for (const [k, v] of Object.entries(orders)) {
+        await save(`backup_${k}`, v);
+        oKeys.push(k);
+      }
+    }
+    const meta = { label: fileData.label, createdAt: fileData.createdAt, timestamp: fileData.timestamp, version: fileData.version, orderKeys: oKeys };
+    await save("backup_meta", meta);
+    return meta;
+  }
+  // 新格式直接存
+  await save("backup_meta", fileData);
+  return fileData;
 }
 
 // ── EMAIL（透過 Apps Script 用 Gmail 寄出）────────────────────────────────
@@ -1092,7 +1173,7 @@ function AdminView({settings,setSettings,cats,setCats}) {
     {k:"bulletin",l:"📢 公布欄"},
     {k:"products",l:"📦 產品管理"},
     {k:"newmonth",l:"🗓 新月份"},
-    {k:"backup",l:"💾 備份"},
+    {k:"system",l:"⚙️ 系統設定"},
   ];
 
   return (
@@ -1122,7 +1203,7 @@ function AdminView({settings,setSettings,cats,setCats}) {
       {tab==="closeout"&&<CloseoutTab settings={settings} setSettings={setSettings} cats={cats}/>}
       {tab==="emails"&&<EmailsTab settings={settings} cats={cats}/>}
       {tab==="newmonth"&&<NewMonthTab settings={settings} setSettings={setSettings}/>}
-      {tab==="backup"&&<BackupTab/>}
+      {tab==="system"&&<SystemTab settings={settings}/>}
     </div>
   );
 }
@@ -1726,100 +1807,27 @@ function EmailsTab({settings,cats}) {
   );
 }
 
-function ResetDataSection({settings}) {
-  const [confirmTarget,setConfirmTarget]=useState(null);
-  const [busy,setBusy]=useState(false);
-  const [result,setResult]=useState(null);
 
-  const clearOrders=async()=>{
-    setBusy(true); setResult(null);
-    const key=orderKey(settings.year, settings.month);
-    await save(key, {});
-    localStorage.removeItem(key);
-    setResult(`已清除 ${settings.year}年${settings.month}月 的訂單`);
-    setBusy(false); setConfirmTarget(null);
-  };
-
-  const clearCustomers=async()=>{
-    setBusy(true); setResult(null);
-    await save("customers", {});
-    localStorage.removeItem("customers");
-    setResult("已清除所有訂購人資訊");
-    setBusy(false); setConfirmTarget(null);
-  };
-
-  const clearHistory=async()=>{
-    setBusy(true); setResult(null);
-    await save("history", {});
-    localStorage.removeItem("history");
-    setResult("已清除歷史訂單");
-    setBusy(false); setConfirmTarget(null);
-  };
-
-  const clearAll=async()=>{
-    setBusy(true); setResult(null);
-    const key=orderKey(settings.year, settings.month);
-    await Promise.all([save(key, {}), save("customers", {}), save("history", {})]);
-    localStorage.removeItem(key);
-    localStorage.removeItem("customers");
-    localStorage.removeItem("history");
-    setResult("已清除本月訂單、訂購人資訊、歷史訂單（產品目錄與設定保留）");
-    setBusy(false); setConfirmTarget(null);
-  };
-
-  const clearLocalOnly=()=>{
-    localStorage.clear();
-    window.location.reload();
-  };
-
-  const targets={
-    orders:{msg:`確定清除 ${settings.year}年${settings.month}月 的所有訂單？（同時清除本機與 Google Sheets）`,action:clearOrders},
-    customers:{msg:"確定清除所有訂購人資訊？（同時清除本機與 Google Sheets）",action:clearCustomers},
-    history:{msg:"確定清除所有歷史訂單？（同時清除本機與 Google Sheets）",action:clearHistory},
-    all:{msg:"確定清除所有測試資料（本月訂單＋訂購人＋歷史）？產品目錄與系統設定會保留。",action:clearAll},
-    local:{msg:"確定清除本機快取？頁面將重新整理，資料會從 Google Sheets 重新載入。",action:clearLocalOnly},
-  };
-
-  const btnStyle={fontSize:"0.82rem",padding:"7px 14px"};
-
-  return (
-    <div style={{marginTop:28,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
-      {confirmTarget&&<ConfirmModal msg={targets[confirmTarget].msg} onOk={targets[confirmTarget].action} onCancel={()=>setConfirmTarget(null)}/>}
-      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:8,color:C.red}}>🧹 清除測試資料</div>
-      <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:14,lineHeight:1.7}}>
-        選擇要清除的資料範圍。「本機＋雲端」會同時清除 localStorage 和 Google Sheets。
-      </p>
-      {result&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ {result}</div>}
-      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
-        <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("orders")}>🗑 清除本月訂單</Btn>
-        <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("customers")}>🗑 清除訂購人</Btn>
-        <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("history")}>🗑 清除歷史訂單</Btn>
-      </div>
-      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-        <Btn color={C.red} disabled={busy} onClick={()=>setConfirmTarget("all")}>{busy?"清除中…":"⚠️ 一鍵清除所有測試資料"}</Btn>
-        <Btn color={C.muted} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("local")}>🔄 僅清除本機快取</Btn>
-      </div>
-    </div>
-  );
-}
-
-function BackupTab() {
-  const [backup,setBackup]=useState(null);
+function SystemTab({settings}) {
+  const [meta,setMeta]=useState(null);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState("");
   const [confirmRestore,setConfirmRestore]=useState(false);
   const fileRef=useRef(null);
+  // 清除資料
+  const [confirmTarget,setConfirmTarget]=useState(null);
+  const [resetResult,setResetResult]=useState(null);
 
   useEffect(()=>{
-    load("backup").then(b=>{setBackup(b||null);setLoading(false);});
+    loadBackupMeta().then(m=>{setMeta(m);setLoading(false);});
   },[]);
 
   const doBackup=async()=>{
     setBusy(true);setMsg("");
     try {
-      const b=await createBackup("手動備份");
-      setBackup(b);
+      const m=await createBackup("手動備份");
+      setMeta(m);
       setMsg("✅ 備份完成");
     } catch(e){ setMsg("❌ 備份失敗："+e.message); }
     setBusy(false);
@@ -1828,32 +1836,36 @@ function BackupTab() {
   const doRestore=async()=>{
     setBusy(true);setMsg("");setConfirmRestore(false);
     try {
-      await restoreBackup(backup);
+      await restoreBackup(meta);
       setMsg("✅ 已從備份回復，頁面即將重新整理…");
       setTimeout(()=>window.location.reload(),1500);
     } catch(e){ setMsg("❌ 回復失敗："+e.message);setBusy(false); }
   };
 
-  const exportBackup=()=>{
-    if(!backup) return;
-    const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement("a");
-    a.href=url;a.download=`daiken-backup-${backup.timestamp||Date.now()}.json`;
-    a.click();URL.revokeObjectURL(url);
+  const doExport=async()=>{
+    setBusy(true);setMsg("");
+    try {
+      const full=await exportFullBackup();
+      if(!full){setMsg("❌ 尚無備份可匯出");setBusy(false);return;}
+      const blob=new Blob([JSON.stringify(full,null,2)],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;a.download=`daiken-backup-${full.timestamp||Date.now()}.json`;
+      a.click();URL.revokeObjectURL(url);
+    } catch(e){ setMsg("❌ 匯出失敗："+e.message); }
+    setBusy(false);
   };
 
-  const importBackup=(e)=>{
+  const doImport=(e)=>{
     const file=e.target.files?.[0];
     if(!file) return;
     const reader=new FileReader();
     reader.onload=async(ev)=>{
       try {
         const data=JSON.parse(ev.target.result);
-        if(!data.data||!data.createdAt) throw new Error("格式不正確");
         setBusy(true);setMsg("");
-        await save("backup",data);
-        setBackup(data);
+        const m=await importBackupFile(data);
+        setMeta(m);
         setMsg("✅ 已匯入備份檔，如需套用請點「從備份回復」");
       } catch(err){ setMsg("❌ 匯入失敗："+err.message); }
       setBusy(false);
@@ -1862,37 +1874,94 @@ function BackupTab() {
     if(fileRef.current) fileRef.current.value="";
   };
 
+  // ── 清除資料 ──
+  const clearOrders=async()=>{
+    setBusy(true);setResetResult(null);
+    const key=orderKey(settings.year,settings.month);
+    await save(key,{});localStorage.removeItem(key);
+    setResetResult(`已清除 ${settings.year}年${settings.month}月 的訂單`);
+    setBusy(false);setConfirmTarget(null);
+  };
+  const clearCustomers=async()=>{
+    setBusy(true);setResetResult(null);
+    await save("customers",{});localStorage.removeItem("customers");
+    setResetResult("已清除所有訂購人資訊");
+    setBusy(false);setConfirmTarget(null);
+  };
+  const clearHistory=async()=>{
+    setBusy(true);setResetResult(null);
+    await save("history",{});localStorage.removeItem("history");
+    setResetResult("已清除歷史訂單");
+    setBusy(false);setConfirmTarget(null);
+  };
+  const clearAll=async()=>{
+    setBusy(true);setResetResult(null);
+    const key=orderKey(settings.year,settings.month);
+    await Promise.all([save(key,{}),save("customers",{}),save("history",{})]);
+    localStorage.removeItem(key);localStorage.removeItem("customers");localStorage.removeItem("history");
+    setResetResult("已清除本月訂單、訂購人資訊、歷史訂單（產品目錄與設定保留）");
+    setBusy(false);setConfirmTarget(null);
+  };
+  const clearLocalOnly=()=>{localStorage.clear();window.location.reload();};
+  const resetTargets={
+    orders:{msg:`確定清除 ${settings.year}年${settings.month}月 的所有訂單？（同時清除本機與 Google Sheets）`,action:clearOrders},
+    customers:{msg:"確定清除所有訂購人資訊？（同時清除本機與 Google Sheets）",action:clearCustomers},
+    history:{msg:"確定清除所有歷史訂單？（同時清除本機與 Google Sheets）",action:clearHistory},
+    all:{msg:"確定清除所有測試資料（本月訂單＋訂購人＋歷史）？產品目錄與系統設定會保留。",action:clearAll},
+    local:{msg:"確定清除本機快取？頁面將重新整理，資料會從 Google Sheets 重新載入。",action:clearLocalOnly},
+  };
+  const btnStyle={fontSize:"0.82rem",padding:"7px 14px"};
+
   if(loading) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
 
   return (
     <div style={{maxWidth:600}}>
       {confirmRestore&&<ConfirmModal msg="確定從備份回復？目前的資料將被備份中的資料覆蓋，此操作無法復原。" onOk={doRestore} onCancel={()=>setConfirmRestore(false)}/>}
+      {confirmTarget&&<ConfirmModal msg={resetTargets[confirmTarget].msg} onOk={resetTargets[confirmTarget].action} onCancel={()=>setConfirmTarget(null)}/>}
+
+      {/* ── 備份區 ── */}
       <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:14}}>💾 資料備份</div>
       <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:16,lineHeight:1.7}}>
         系統會在每次結單時自動備份（僅保留最新一份）。您也可以手動備份或匯出備份檔至本機。
       </p>
       {msg&&<div style={{background:msg.startsWith("✅")?C.gp:"#fff5f5",border:`1px solid ${msg.startsWith("✅")?C.gl:"#feb2b2"}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:msg.startsWith("✅")?C.green:C.red,marginBottom:14}}>{msg}</div>}
-
-      {backup&&(
+      {meta&&(
         <div style={{background:C.white,border:`1.5px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:18}}>
           <div style={{fontSize:"0.85rem",fontWeight:600,marginBottom:6}}>📋 最新備份</div>
           <div style={{fontSize:"0.8rem",color:C.muted,lineHeight:1.8}}>
-            <div>備份時間：{backup.createdAt}</div>
-            <div>備份標籤：{backup.label}</div>
-            <div>版本：{backup.version||"未知"}</div>
+            <div>備份時間：{meta.createdAt}</div>
+            <div>備份標籤：{meta.label}</div>
+            <div>版本：{meta.version||"未知"}</div>
           </div>
         </div>
       )}
-      {!backup&&<div style={{background:C.cream,border:`1.5px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:18,fontSize:"0.83rem",color:C.muted,textAlign:"center"}}>尚無備份紀錄</div>}
-
+      {!meta&&<div style={{background:C.cream,border:`1.5px solid ${C.border}`,borderRadius:12,padding:"14px 18px",marginBottom:18,fontSize:"0.83rem",color:C.muted,textAlign:"center"}}>尚無備份紀錄</div>}
       <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
         <Btn onClick={doBackup} disabled={busy} color={C.green}>{busy?"備份中…":"📥 手動備份"}</Btn>
-        {backup&&<Btn onClick={exportBackup} disabled={busy} color={C.gold} outline>📤 匯出備份檔</Btn>}
-        {backup&&<Btn onClick={()=>setConfirmRestore(true)} disabled={busy} color={C.red} outline>♻️ 從備份回復</Btn>}
+        {meta&&<Btn onClick={doExport} disabled={busy} color={C.gold} outline>📤 匯出備份檔</Btn>}
+        {meta&&<Btn onClick={()=>setConfirmRestore(true)} disabled={busy} color={C.red} outline>♻️ 從備份回復</Btn>}
       </div>
-      <div style={{marginTop:8}}>
-        <input ref={fileRef} type="file" accept=".json" onChange={importBackup} style={{display:"none"}}/>
+      <div>
+        <input ref={fileRef} type="file" accept=".json" onChange={doImport} style={{display:"none"}}/>
         <Btn onClick={()=>fileRef.current?.click()} disabled={busy} color={C.muted} outline>📂 從檔案匯入備份</Btn>
+      </div>
+
+      {/* ── 清除資料區 ── */}
+      <div style={{marginTop:28,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
+        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:8,color:C.red}}>🧹 清除測試資料</div>
+        <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:14,lineHeight:1.7}}>
+          選擇要清除的資料範圍。「本機＋雲端」會同時清除 localStorage 和 Google Sheets。
+        </p>
+        {resetResult&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ {resetResult}</div>}
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+          <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("orders")}>🗑 清除本月訂單</Btn>
+          <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("customers")}>🗑 清除訂購人</Btn>
+          <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("history")}>🗑 清除歷史訂單</Btn>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+          <Btn color={C.red} disabled={busy} onClick={()=>setConfirmTarget("all")}>{busy?"清除中…":"⚠️ 一鍵清除所有測試資料"}</Btn>
+          <Btn color={C.muted} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("local")}>🔄 僅清除本機快取</Btn>
+        </div>
       </div>
     </div>
   );
@@ -1958,8 +2027,6 @@ function NewMonthTab({settings,setSettings}) {
         </Btn>
       </div>
 
-      {/* 清除測試資料 */}
-      <ResetDataSection settings={settings}/>
     </div>
   );
 }
