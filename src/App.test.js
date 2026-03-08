@@ -1,5 +1,4 @@
-import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from './App';
 
 // ── Mock fetch & localStorage ────────────────────────────────────────────────
@@ -107,7 +106,7 @@ describe('App 基本載入', () => {
 
   test('顯示版本號', () => {
     render(<App />);
-    expect(screen.getByText(/v2\.9\.4/)).toBeInTheDocument();
+    expect(screen.getByText(/v2\.9\.5/)).toBeInTheDocument();
   });
 
   test('顯示月份公告', () => {
@@ -457,8 +456,8 @@ describe('訂單管理', () => {
     await loginAndGoToOrders();
     await waitFor(() => {
       expect(screen.getByText('測試用戶')).toBeInTheDocument();
-      expect(screen.getByText('test@example.com')).toBeInTheDocument();
     });
+    expect(screen.getByText('test@example.com')).toBeInTheDocument();
   });
 });
 
@@ -587,9 +586,9 @@ describe('Email 歷史資料帶入', () => {
 describe('產品連結', () => {
   test('產品名稱有外部連結', () => {
     render(<App />);
-    const link = screen.getByText(/德國頂級魚油 🔗/);
-    expect(link.closest('a')).toHaveAttribute('href', 'https://example.com/p1');
-    expect(link.closest('a')).toHaveAttribute('target', '_blank');
+    const link = screen.getByRole('link', { name: /德國頂級魚油 🔗/ });
+    expect(link).toHaveAttribute('href', 'https://example.com/p1');
+    expect(link).toHaveAttribute('target', '_blank');
   });
 });
 
@@ -619,7 +618,7 @@ describe('訂單送出', () => {
 
     await waitFor(() => {
       expect(screen.getByText('🎉')).toBeInTheDocument();
-      expect(screen.getByText('訂單已送出！')).toBeInTheDocument();
     });
+    expect(screen.getByText('訂單已送出！')).toBeInTheDocument();
   });
 });
