@@ -46,9 +46,10 @@ function _notifySyncWarning(key) { _syncListeners.forEach(fn=>fn(key)); }
 const _loadedVersions = {};
 const _pendingVerify = {};
 
-async function load(key) {
+async function load(key, sheet) {
   try {
-    const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
+    let url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
+    if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
     const res = await fetch(url);
     const json = await res.json();
     if (json.success && json.value) {
@@ -60,7 +61,8 @@ async function load(key) {
   } catch(e) {
     console.warn("load fallback to localStorage:", key);
     try {
-      const v = localStorage.getItem(key);
+      const cacheKey = sheet ? `${sheet}::${key}` : key;
+      const v = localStorage.getItem(cacheKey);
       if (!v) return null;
       const parsed = JSON.parse(v);
       if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
@@ -69,9 +71,9 @@ async function load(key) {
   }
 }
 
-async function save(key, val) {
+async function save(key, val, sheet) {
   // 對訂單和顧客資料加入版本號（Optimistic Locking）
-  const needsVersion = key.startsWith("orders_") || key === "customers";
+  const needsVersion = !sheet && (key.startsWith("orders_") || key === "customers");
   if (needsVersion && val && typeof val === "object") {
     val._v = Date.now();
   }
@@ -80,7 +82,7 @@ async function save(key, val) {
   const version = (_saveVersions[key] || 0) + 1;
   _saveVersions[key] = version;
   // 同步寫入 localStorage 當快取（讓 UI 立即反應）
-  try { localStorage.setItem(key, jsonStr); } catch {}
+  try { const cacheKey = sheet ? `${sheet}::${key}` : key; localStorage.setItem(cacheKey, jsonStr); } catch {}
   // 寫入 Google Sheets（no-cors 避免 redirect 把 POST 變 GET）
   try {
     const params = new URLSearchParams();
@@ -88,6 +90,7 @@ async function save(key, val) {
     params.append("key", key);
     params.append("value", jsonStr);
     params.append("token", WRITE_TOKEN);
+    if (sheet) params.append("sheet", sheet);
     if (needsVersion) {
       params.append("baseV", String(_loadedVersions[key] || "0"));
     }
@@ -106,7 +109,7 @@ async function save(key, val) {
     if (_saveVersions[key] !== version) return;
     // 針對帶版本號的資料，直接比對 _v 而非整個 JSON
     try {
-      const remote = await load(key);
+      const remote = await load(key, sheet);
       if (needsVersion && remote && val && remote._v !== val._v) {
         console.warn(`sync verify failed for "${key}": version mismatch (local=${val._v}, remote=${remote._v})`);
         _notifySyncWarning(key);
@@ -122,10 +125,12 @@ async function save(key, val) {
 }
 
 // ── BACKUP（備份與回復）──────────────────────────────────────────────────
-// 使用多個 key 分散儲存，避免單一欄位空間不足
-// backup_meta: 備份資訊（時間、標籤、版本、訂單 key 列表）
-// backup_settings / backup_cats / backup_customers / backup_history: 各自獨立
-// backup_orders_YYYY_MM: 每月訂單各自一個 key
+// 備份資料儲存於獨立工作表 "backup_app_data"，不與主資料混淆
+// key: meta / settings / cats / customers / history / orders_YYYY_MM
+const BK_SHEET = "backup_app_data";
+const bkLoad = (key) => load(key, BK_SHEET);
+const bkSave = (key, val) => save(key, val, BK_SHEET);
+
 async function createBackup(label) {
   const settingsData = await load("settings");
   const catsData = await load("cats");
@@ -140,16 +145,14 @@ async function createBackup(label) {
   for (const k of uniqueKeys) {
     const d = await load(k);
     if (d && Object.keys(dataEntries(d)).length > 0) {
-      await save(`backup_${k}`, d);
+      await bkSave(k, d);
       savedOrderKeys.push(k);
     }
   }
-  // 分別儲存各資料區塊
-  await save("backup_settings", settingsData);
-  await save("backup_cats", catsData);
-  await save("backup_customers", customersData);
-  await save("backup_history", historyData);
-  // 儲存 meta 資訊
+  await bkSave("settings", settingsData);
+  await bkSave("cats", catsData);
+  await bkSave("customers", customersData);
+  await bkSave("history", historyData);
   const meta = {
     label: label || "手動備份",
     createdAt: nowStr(),
@@ -157,13 +160,13 @@ async function createBackup(label) {
     version: VERSION,
     orderKeys: savedOrderKeys
   };
-  await save("backup_meta", meta);
+  await bkSave("meta", meta);
   return meta;
 }
 
-// 從備份回復（支援新格式多 key 與舊格式單 key）
+// 從備份回復（支援新格式與舊格式）
 async function restoreBackup(backupOrMeta) {
-  // 舊格式：單一 backup key 含 data 欄位
+  // 舊格式：單一 key 含 data 欄位
   if (backupOrMeta && backupOrMeta.data) {
     const { settings, cats, customers, history, orders } = backupOrMeta.data;
     if (settings) await save("settings", settings);
@@ -173,11 +176,11 @@ async function restoreBackup(backupOrMeta) {
     if (orders) { for (const [k, v] of Object.entries(orders)) await save(k, v); }
     return;
   }
-  // 新格式：從多個 backup_* key 讀取
+  // 新格式：從 backup_app_data 工作表讀取
   const meta = backupOrMeta;
   if (!meta || !meta.createdAt) throw new Error("無效的備份資料");
   const [s, ca, cu, h] = await Promise.all([
-    load("backup_settings"), load("backup_cats"), load("backup_customers"), load("backup_history")
+    bkLoad("settings"), bkLoad("cats"), bkLoad("customers"), bkLoad("history")
   ]);
   if (s) await save("settings", s);
   if (ca) await save("cats", ca);
@@ -185,19 +188,21 @@ async function restoreBackup(backupOrMeta) {
   if (h) await save("history", h);
   if (meta.orderKeys) {
     for (const k of meta.orderKeys) {
-      const d = await load(`backup_${k}`);
+      const d = await bkLoad(k);
       if (d) await save(k, d);
     }
   }
 }
 
-// 載入備份 meta（優先新格式，fallback 舊格式）
+// 載入備份 meta
 async function loadBackupMeta() {
-  const meta = await load("backup_meta");
+  const meta = await bkLoad("meta");
   if (meta && meta.createdAt) return meta;
-  // fallback: 舊格式
-  const old = await load("backup");
+  // fallback: 舊格式（app_data 工作表的 backup_meta key）
+  const old = await load("backup_meta");
   if (old && old.createdAt) return old;
+  const legacy = await load("backup");
+  if (legacy && legacy.createdAt) return legacy;
   return null;
 }
 
@@ -205,45 +210,41 @@ async function loadBackupMeta() {
 async function exportFullBackup() {
   const meta = await loadBackupMeta();
   if (!meta) return null;
-  // 舊格式已包含所有資料
   if (meta.data) return meta;
-  // 新格式：組合所有 backup_* key
   const [s, ca, cu, h] = await Promise.all([
-    load("backup_settings"), load("backup_cats"), load("backup_customers"), load("backup_history")
+    bkLoad("settings"), bkLoad("cats"), bkLoad("customers"), bkLoad("history")
   ]);
   const orders = {};
   if (meta.orderKeys) {
     for (const k of meta.orderKeys) {
-      const d = await load(`backup_${k}`);
+      const d = await bkLoad(k);
       if (d) orders[k] = d;
     }
   }
   return { ...meta, data: { settings: s, cats: ca, customers: cu, history: h, orders } };
 }
 
-// 從匯入的檔案回存為多 key 格式
+// 從匯入的檔案回存至 backup_app_data 工作表
 async function importBackupFile(fileData) {
   if (!fileData || !fileData.createdAt) throw new Error("格式不正確");
-  // 如果是舊格式（含 data），轉存為多 key
   if (fileData.data) {
     const { settings, cats, customers, history, orders } = fileData.data;
-    if (settings) await save("backup_settings", settings);
-    if (cats) await save("backup_cats", cats);
-    if (customers) await save("backup_customers", customers);
-    if (history) await save("backup_history", history);
+    if (settings) await bkSave("settings", settings);
+    if (cats) await bkSave("cats", cats);
+    if (customers) await bkSave("customers", customers);
+    if (history) await bkSave("history", history);
     const oKeys = [];
     if (orders) {
       for (const [k, v] of Object.entries(orders)) {
-        await save(`backup_${k}`, v);
+        await bkSave(k, v);
         oKeys.push(k);
       }
     }
     const meta = { label: fileData.label, createdAt: fileData.createdAt, timestamp: fileData.timestamp, version: fileData.version, orderKeys: oKeys };
-    await save("backup_meta", meta);
+    await bkSave("meta", meta);
     return meta;
   }
-  // 新格式直接存
-  await save("backup_meta", fileData);
+  await bkSave("meta", fileData);
   return fileData;
 }
 
