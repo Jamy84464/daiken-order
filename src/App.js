@@ -1350,11 +1350,26 @@ function HistoryTab({cats}) {
 function CustomersTab() {
   const [customers,setCustomers]=useState(null);
   const [search,setSearch]=useState("");
+  const [confirmDelete,setConfirmDelete]=useState(null);
+  const [busyDelete,setBusyDelete]=useState(false);
   useEffect(()=>{load("customers").then(c=>setCustomers(c||{}));}, []);
+
+  const deleteCustomer=async(email)=>{
+    setBusyDelete(true);
+    const updated={...customers};
+    delete updated[email];
+    await save("customers",updated);
+    setCustomers(updated);
+    setConfirmDelete(null);
+    setBusyDelete(false);
+    showToast("已刪除","success");
+  };
+
   if(!customers) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
   const list=Object.values(dataEntries(customers)).filter(c=>!search||(c.name+c.email+c.phone).includes(search));
   return (
     <div>
+      {confirmDelete&&<ConfirmModal msg={`確定刪除「${customers[confirmDelete]?.name||confirmDelete}」的訂購人資料？此操作無法復原。`} onOk={()=>deleteCustomer(confirmDelete)} onCancel={()=>setConfirmDelete(null)}/>}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div className="serif" style={{fontSize:"0.97rem",fontWeight:700}}>👥 訂購人資料庫</div>
         <span style={{fontSize:"0.8rem",color:C.muted}}>共 {Object.keys(dataEntries(customers)).length} 人</span>
@@ -1369,9 +1384,15 @@ function CustomersTab() {
             <span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>{c.phone}</span>
             {c.lineId&&<span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>LINE: {c.lineId}</span>}
           </div>
-          <div style={{fontSize:"0.78rem",color:C.muted,textAlign:"right"}}>
-            <div>{c.relation}｜最近訂購：{c.lastOrder}</div>
-            <div>累計訂購 {c.orderCount} 次</div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{fontSize:"0.78rem",color:C.muted,textAlign:"right"}}>
+              <div>{c.relation}｜最近訂購：{c.lastOrder}</div>
+              <div>累計訂購 {c.orderCount} 次</div>
+            </div>
+            <button onClick={()=>setConfirmDelete(c.email)} disabled={busyDelete}
+              style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"1rem",padding:"4px 6px",borderRadius:6,opacity:busyDelete?0.4:0.6,transition:"opacity .15s"}}
+              onMouseEnter={e=>{if(!busyDelete)e.currentTarget.style.opacity="1";}}
+              onMouseLeave={e=>{e.currentTarget.style.opacity=busyDelete?"0.4":"0.6";}}>✕</button>
           </div>
         </div>
       ))}
