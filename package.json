@@ -1,6 +1,6 @@
 {
   "name": "daiken-order",
-  "version": "2.9.4",
+  "version": "2.9.5",
   "private": true,
   "homepage": "https://jamy84464.github.io/daiken-order",
   "dependencies": {
@@ -19,7 +19,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "prepare": "husky"
   },
   "eslintConfig": {
     "extends": [
@@ -39,7 +40,14 @@
       "last 1 safari version"
     ]
   },
+  "lint-staged": {
+    "src/**/*.{js,jsx}": [
+      "eslint --max-warnings 0"
+    ]
+  },
   "devDependencies": {
-    "gh-pages": "^6.3.0"
+    "gh-pages": "^6.3.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.2"
   }
 }
