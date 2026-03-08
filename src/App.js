@@ -1350,11 +1350,26 @@ function HistoryTab({cats}) {
 function CustomersTab() {
   const [customers,setCustomers]=useState(null);
   const [search,setSearch]=useState("");
+  const [confirmDelete,setConfirmDelete]=useState(null);
+  const [busyDelete,setBusyDelete]=useState(false);
   useEffect(()=>{load("customers").then(c=>setCustomers(c||{}));}, []);
+
+  const deleteCustomer=async(email)=>{
+    setBusyDelete(true);
+    const updated={...customers};
+    delete updated[email];
+    await save("customers",updated);
+    setCustomers(updated);
+    setConfirmDelete(null);
+    setBusyDelete(false);
+    showToast("已刪除","success");
+  };
+
   if(!customers) return <div style={{color:C.muted,padding:20}}>載入中…</div>;
   const list=Object.values(dataEntries(customers)).filter(c=>!search||(c.name+c.email+c.phone).includes(search));
   return (
     <div>
+      {confirmDelete&&<ConfirmModal msg={`確定刪除「${customers[confirmDelete]?.name||confirmDelete}」的訂購人資料？此操作無法復原。`} onOk={()=>deleteCustomer(confirmDelete)} onCancel={()=>setConfirmDelete(null)}/>}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div className="serif" style={{fontSize:"0.97rem",fontWeight:700}}>👥 訂購人資料庫</div>
         <span style={{fontSize:"0.8rem",color:C.muted}}>共 {Object.keys(dataEntries(customers)).length} 人</span>
@@ -1369,9 +1384,15 @@ function CustomersTab() {
             <span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>{c.phone}</span>
             {c.lineId&&<span style={{fontSize:"0.78rem",color:C.muted,marginLeft:8}}>LINE: {c.lineId}</span>}
           </div>
-          <div style={{fontSize:"0.78rem",color:C.muted,textAlign:"right"}}>
-            <div>{c.relation}｜最近訂購：{c.lastOrder}</div>
-            <div>累計訂購 {c.orderCount} 次</div>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{fontSize:"0.78rem",color:C.muted,textAlign:"right"}}>
+              <div>{c.relation}｜最近訂購：{c.lastOrder}</div>
+              <div>累計訂購 {c.orderCount} 次</div>
+            </div>
+            <button onClick={()=>setConfirmDelete(c.email)} disabled={busyDelete}
+              style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:"1rem",padding:"4px 6px",borderRadius:6,opacity:busyDelete?0.4:0.6,transition:"opacity .15s"}}
+              onMouseEnter={e=>{if(!busyDelete)e.currentTarget.style.opacity="1";}}
+              onMouseLeave={e=>{e.currentTarget.style.opacity=busyDelete?"0.4":"0.6";}}>✕</button>
           </div>
         </div>
       ))}
@@ -1644,6 +1665,83 @@ function EmailsTab({settings,cats}) {
   );
 }
 
+function ResetDataSection({settings}) {
+  const [confirmTarget,setConfirmTarget]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState(null);
+
+  const clearOrders=async()=>{
+    setBusy(true); setResult(null);
+    const key=orderKey(settings.year, settings.month);
+    await save(key, {});
+    localStorage.removeItem(key);
+    setResult(`已清除 ${settings.year}年${settings.month}月 的訂單`);
+    setBusy(false); setConfirmTarget(null);
+  };
+
+  const clearCustomers=async()=>{
+    setBusy(true); setResult(null);
+    await save("customers", {});
+    localStorage.removeItem("customers");
+    setResult("已清除所有訂購人資訊");
+    setBusy(false); setConfirmTarget(null);
+  };
+
+  const clearHistory=async()=>{
+    setBusy(true); setResult(null);
+    await save("history", {});
+    localStorage.removeItem("history");
+    setResult("已清除歷史訂單");
+    setBusy(false); setConfirmTarget(null);
+  };
+
+  const clearAll=async()=>{
+    setBusy(true); setResult(null);
+    const key=orderKey(settings.year, settings.month);
+    await Promise.all([save(key, {}), save("customers", {}), save("history", {})]);
+    localStorage.removeItem(key);
+    localStorage.removeItem("customers");
+    localStorage.removeItem("history");
+    setResult("已清除本月訂單、訂購人資訊、歷史訂單（產品目錄與設定保留）");
+    setBusy(false); setConfirmTarget(null);
+  };
+
+  const clearLocalOnly=()=>{
+    localStorage.clear();
+    window.location.reload();
+  };
+
+  const targets={
+    orders:{msg:`確定清除 ${settings.year}年${settings.month}月 的所有訂單？（同時清除本機與 Google Sheets）`,action:clearOrders},
+    customers:{msg:"確定清除所有訂購人資訊？（同時清除本機與 Google Sheets）",action:clearCustomers},
+    history:{msg:"確定清除所有歷史訂單？（同時清除本機與 Google Sheets）",action:clearHistory},
+    all:{msg:"確定清除所有測試資料（本月訂單＋訂購人＋歷史）？產品目錄與系統設定會保留。",action:clearAll},
+    local:{msg:"確定清除本機快取？頁面將重新整理，資料會從 Google Sheets 重新載入。",action:clearLocalOnly},
+  };
+
+  const btnStyle={fontSize:"0.82rem",padding:"7px 14px"};
+
+  return (
+    <div style={{marginTop:28,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
+      {confirmTarget&&<ConfirmModal msg={targets[confirmTarget].msg} onOk={targets[confirmTarget].action} onCancel={()=>setConfirmTarget(null)}/>}
+      <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:8,color:C.red}}>🧹 清除測試資料</div>
+      <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:14,lineHeight:1.7}}>
+        選擇要清除的資料範圍。「本機＋雲端」會同時清除 localStorage 和 Google Sheets。
+      </p>
+      {result&&<div style={{background:C.gp,border:`1px solid ${C.gl}`,borderRadius:9,padding:"10px 15px",fontSize:"0.83rem",color:C.green,marginBottom:14}}>✅ {result}</div>}
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+        <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("orders")}>🗑 清除本月訂單</Btn>
+        <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("customers")}>🗑 清除訂購人</Btn>
+        <Btn color={C.red} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("history")}>🗑 清除歷史訂單</Btn>
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+        <Btn color={C.red} disabled={busy} onClick={()=>setConfirmTarget("all")}>{busy?"清除中…":"⚠️ 一鍵清除所有測試資料"}</Btn>
+        <Btn color={C.muted} outline disabled={busy} style={btnStyle} onClick={()=>setConfirmTarget("local")}>🔄 僅清除本機快取</Btn>
+      </div>
+    </div>
+  );
+}
+
 function NewMonthTab({settings,setSettings}) {
   const [year,setYear]=useState(settings.year);
   const [month,setMonth]=useState(settings.month+1>12?1:settings.month+1);
@@ -1705,19 +1803,7 @@ function NewMonthTab({settings,setSettings}) {
       </div>
 
       {/* 清除測試資料 */}
-      <div style={{marginTop:28,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
-        <div className="serif" style={{fontSize:"0.97rem",fontWeight:700,marginBottom:8,color:C.red}}>🧹 清除測試資料</div>
-        <p style={{fontSize:"0.82rem",color:C.muted,marginBottom:12,lineHeight:1.7}}>
-          清除本機快取資料（localStorage），讓系統重新從 Google Sheets 讀取最新資料。<br/>
-          <strong style={{color:C.red}}>注意：Google Sheets 裡的資料請手動刪除。</strong>
-        </p>
-        <Btn color={C.red} outline onClick={()=>{
-          if(window.confirm("確定要清除本機快取嗎？頁面將自動重新整理。")){
-            localStorage.clear();
-            window.location.reload();
-          }
-        }}>🗑 清除本機快取並重新整理</Btn>
-      </div>
+      <ResetDataSection settings={settings}/>
     </div>
   );
 }
