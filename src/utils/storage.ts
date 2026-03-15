@@ -73,7 +73,7 @@ export async function save(key: string, val: any, sheet?: string): Promise<void>
     params.append("value", jsonStr);
     params.append("token", WRITE_TOKEN || "");
     if (sheet) params.append("sheet", sheet);
-    if (needsVersion) {
+    if (needsVersion && !_skipVerify) {
       params.append("baseV", String(_loadedVersions[key] || "0"));
     }
     await fetch(GAS_URL || "", { method: "POST", mode: "no-cors", body: params });
