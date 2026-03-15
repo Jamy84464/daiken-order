@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from './App';
+import { VERSION } from './constants';
 
 // ── Mock fetch & localStorage ────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ describe('App 基本載入', () => {
 
   test('顯示版本號', () => {
     render(<App />);
-    expect(screen.getByText(/v3\.0\.0/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeInTheDocument();
   });
 
   test('顯示月份公告', () => {

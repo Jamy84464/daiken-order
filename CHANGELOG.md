@@ -2,6 +2,14 @@
 
 本文件記錄大研訂購系統（Daiken Order）每個版本的變更內容。
 
+## [3.0.1] - 2026-03-15
+
+### 修復
+- 修復備份回復/建立/匯入時誤觸「雲端同步異常」警告的問題
+- 修復 CI 部署因 TypeScript 5.x peer dependency 衝突導致失敗
+- 修復 CI 部署因 web-vitals 版本不相容導致建置失敗
+- 移除 CustomersTab 未使用的 Btn import（lint 警告）
+
 ## [3.0.0] - 2026-03-08
 
 ### 重大變更
