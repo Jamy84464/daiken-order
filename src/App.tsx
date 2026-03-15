@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { VERSION, C, globalCSS, DEFAULT_BULLETIN, DEFAULT_BANK, GAS_URL, INIT_CATS } from "./constants";
 import { load, save } from "./utils/storage";
 import { isValidEmail, orderKey, nowStr, dataEntries, flatProducts } from "./utils/helpers";
@@ -11,8 +11,9 @@ import { Toast } from "./components/Toast";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ShopView } from "./components/ShopView";
 import { MyOrderView } from "./components/MyOrderView";
-import { AdminView } from "./components/AdminView";
 import type { Settings, Category, Order } from "./types";
+
+const AdminView = lazy(() => import("./components/AdminView").then(m => ({ default: m.AdminView })));
 
 function App() {
   const [view, setView] = useState("shop");
@@ -33,30 +34,30 @@ function App() {
     } catch {}
 
     (async () => {
-      let s = await load("settings");
-      if (!s) {
-        const now = new Date();
-        s = { year: now.getFullYear(), month: now.getMonth() + 1, isOpen: true, bulletin: DEFAULT_BULLETIN, bank: DEFAULT_BANK };
-        await save("settings", s);
-      }
+      // 平行載入 settings 和 cats，減少等待時間
+      const [s, loadedCats] = await Promise.all([
+        (async () => {
+          let s = await load("settings");
+          if (!s) {
+            const now = new Date();
+            s = { year: now.getFullYear(), month: now.getMonth() + 1, isOpen: true, bulletin: DEFAULT_BULLETIN, bank: DEFAULT_BANK };
+            await save("settings", s);
+          }
+          return s;
+        })(),
+        (async () => {
+          try {
+            const res = await fetch(`${GAS_URL}?action=getCats`);
+            const json = await res.json();
+            if (json.success && json.value) return JSON.parse(json.value);
+          } catch (e) { console.warn("getCats from sheet failed, using cache"); }
+          const savedCats = await load("cats");
+          return savedCats || INIT_CATS;
+        })(),
+      ]);
+
       setSettings(s);
       try { localStorage.setItem("settings", JSON.stringify(s)); } catch {}
-
-      let loadedCats = null;
-      try {
-        const url = `${GAS_URL}?action=getCats`;
-        const res = await fetch(url);
-        const json = await res.json();
-        if (json.success && json.value) {
-          loadedCats = JSON.parse(json.value);
-        }
-      } catch (e) { console.warn("getCats from sheet failed, using cache"); }
-
-      if (!loadedCats) {
-        const savedCats = await load("cats");
-        loadedCats = savedCats || INIT_CATS;
-      }
-
       setCats(loadedCats);
       try { localStorage.setItem("cats", JSON.stringify(loadedCats)); } catch {}
     })();
@@ -136,7 +137,7 @@ function App() {
                 </div>
           )}
           {view === "myorder" && <MyOrderView settings={settings} cats={cats} />}
-          {view === "admin" && <AdminView settings={settings} setSettings={setSettings} cats={cats} setCats={setCats} />}
+          {view === "admin" && <Suspense fallback={<div style={{ textAlign: "center", padding: 40, color: C.muted }}>載入中…</div>}><AdminView settings={settings} setSettings={setSettings} cats={cats} setCats={setCats} /></Suspense>}
         </div>
       </div>
       <SyncStatus />
