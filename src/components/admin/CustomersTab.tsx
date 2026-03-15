@@ -3,7 +3,7 @@ import { C } from "../../constants";
 import { dataEntries } from "../../utils/helpers";
 import { load, save } from "../../utils/storage";
 import { showToast } from "../../utils/toast";
-import { Btn, TextInput } from "../ui";
+import { TextInput } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
 import type { Customer } from "../../types";
 
