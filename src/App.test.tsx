@@ -40,7 +40,7 @@ const mockCustomers = {
 };
 
 // localStorage mock
-const localStorageData = {};
+const localStorageData: Record<string, string | undefined> = {};
 beforeEach(() => {
   Object.keys(localStorageData).forEach(k => delete localStorageData[k]);
   localStorageData.settings = JSON.stringify(mockSettings);
@@ -73,7 +73,7 @@ beforeEach(() => {
     }
     // POST requests (save, sendEmail) — no-cors returns opaque response
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
-  });
+  }) as jest.Mock;
 
   // Suppress console.warn/error in tests
   jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -93,7 +93,7 @@ describe('App 基本載入', () => {
     // No localStorage cache → should show loading
     localStorageData.settings = undefined;
     localStorageData.cats = undefined;
-    Storage.prototype.getItem.mockImplementation(() => null);
+    (Storage.prototype.getItem as jest.Mock).mockImplementation(() => null);
     render(<App />);
     expect(screen.getByText('載入中…')).toBeInTheDocument();
   });
@@ -106,7 +106,7 @@ describe('App 基本載入', () => {
 
   test('顯示版本號', () => {
     render(<App />);
-    expect(screen.getByText(/v2\.9\.6/)).toBeInTheDocument();
+    expect(screen.getByText(/v3\.0\.0/)).toBeInTheDocument();
   });
 
   test('顯示月份公告', () => {
@@ -468,7 +468,7 @@ describe('購物車數量限制', () => {
   test('數量不會超過 99', () => {
     render(<App />);
     // 找到第一個數量 input
-    const inputs = screen.getAllByRole('spinbutton');
+    const inputs = screen.getAllByRole('spinbutton') as HTMLInputElement[];
     fireEvent.change(inputs[0], { target: { value: '100' } });
     // 由於 Math.min(99, q)，值應被限制在 99
     expect(inputs[0].value).toBe('99');
@@ -476,7 +476,7 @@ describe('購物車數量限制', () => {
 
   test('數量不會小於 0', () => {
     render(<App />);
-    const inputs = screen.getAllByRole('spinbutton');
+    const inputs = screen.getAllByRole('spinbutton') as HTMLInputElement[];
     fireEvent.change(inputs[0], { target: { value: '-5' } });
     expect(inputs[0].value).toBe('0');
   });
@@ -517,7 +517,7 @@ describe('公告顯示', () => {
 
 describe('離線降級', () => {
   test('fetch 失敗時仍可從 localStorage 載入頁面', async () => {
-    global.fetch = jest.fn(() => Promise.reject(new Error('Network error')));
+    global.fetch = jest.fn(() => Promise.reject(new Error('Network error'))) as jest.Mock;
     render(<App />);
     // 從 localStorage 載入，頁面仍可正常顯示
     expect(screen.getByText(/大研生醫/)).toBeInTheDocument();
