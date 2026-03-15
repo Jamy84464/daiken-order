@@ -134,10 +134,12 @@ describe('頁面導覽', () => {
     expect(screen.getByText('⚙️ 後台')).toBeInTheDocument();
   });
 
-  test('點擊後台按鈕顯示登入頁面', () => {
+  test('點擊後台按鈕顯示登入頁面', async () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
-    expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
+    });
   });
 
   test('點擊查詢/修改訂單顯示查詢頁面', () => {
@@ -146,10 +148,12 @@ describe('頁面導覽', () => {
     expect(screen.getByText(/請輸入.*Email/)).toBeInTheDocument();
   });
 
-  test('點擊訂購回到主頁', () => {
+  test('點擊訂購回到主頁', async () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
-    expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByText('🛒 訂購'));
     expect(screen.getByText(/購物車/)).toBeInTheDocument();
   });
@@ -326,10 +330,12 @@ describe('查詢訂單', () => {
 // ── 8. 管理員登入 (AdminView) ────────────────────────────────────────────────
 
 describe('管理員登入', () => {
-  test('顯示密碼欄位和登入按鈕', () => {
+  test('顯示密碼欄位和登入按鈕', async () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
-    expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
     expect(screen.getByText('登入')).toBeInTheDocument();
   });
 
@@ -337,6 +343,9 @@ describe('管理員登入', () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
 
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
     const pwInput = screen.getByPlaceholderText('請輸入密碼');
     fireEvent.change(pwInput, { target: { value: 'admin123' } });
     fireEvent.click(screen.getByText('登入'));
@@ -350,6 +359,9 @@ describe('管理員登入', () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
 
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
     const pwInput = screen.getByPlaceholderText('請輸入密碼');
     fireEvent.change(pwInput, { target: { value: 'wrong' } });
     fireEvent.click(screen.getByText('登入'));
@@ -359,9 +371,12 @@ describe('管理員登入', () => {
     });
   });
 
-  test('空密碼不送出', () => {
+  test('空密碼不送出', async () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
+    await waitFor(() => {
+      expect(screen.getByText('登入')).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByText('登入'));
     // fetch should not be called for verifyAdmin
     expect(global.fetch).not.toHaveBeenCalledWith(
@@ -377,6 +392,9 @@ describe('管理後台分頁', () => {
   const loginAdmin = async () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
     const pwInput = screen.getByPlaceholderText('請輸入密碼');
     fireEvent.change(pwInput, { target: { value: 'admin123' } });
     fireEvent.click(screen.getByText('登入'));
@@ -408,20 +426,25 @@ describe('管理後台分頁', () => {
   test('切換到公布欄分頁', async () => {
     await loginAdmin();
     fireEvent.click(screen.getByText('📢 公布欄'));
-    expect(screen.getByText('📢 公布欄內容')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('📢 公布欄內容')).toBeInTheDocument();
+    });
   });
 
   test('切換到產品管理分頁', async () => {
     await loginAdmin();
     fireEvent.click(screen.getByText('📦 產品管理'));
-    expect(screen.getAllByText(/產品管理/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/透過 Google Sheets 管理產品/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/透過 Google Sheets 管理產品/)).toBeInTheDocument();
+    });
   });
 
   test('切換到新月份分頁', async () => {
     await loginAdmin();
     fireEvent.click(screen.getByText('🗓 新月份'));
-    expect(screen.getByText('🗓 開始新月份團購')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('🗓 開始新月份團購')).toBeInTheDocument();
+    });
   });
 });
 
@@ -432,6 +455,9 @@ describe('訂單管理', () => {
   const loginAndGoToOrders = async () => {
     render(<App />);
     fireEvent.click(screen.getByText('⚙️ 後台'));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
     const pwInput = screen.getByPlaceholderText('請輸入密碼');
     fireEvent.change(pwInput, { target: { value: 'admin123' } });
     fireEvent.click(screen.getByText('登入'));

@@ -16,7 +16,6 @@ export const C = {
 };
 
 export const globalCSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;600;700&family=Noto+Sans+TC:wght@300;400;500;600&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Noto Sans TC',sans-serif;background:${C.cream};color:${C.text}}
   input,select,textarea,button{font-family:'Noto Sans TC',sans-serif}

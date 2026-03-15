@@ -1,17 +1,18 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { C, GAS_URL } from "../constants";
 import { showToast } from "../utils/toast";
 import { Btn, Field, TextInput } from "./ui";
-import { BulletinTab } from "./admin/BulletinTab";
-import { ProductsTab } from "./admin/ProductsTab";
-import { OrdersTab } from "./admin/OrdersTab";
-import { HistoryTab } from "./admin/HistoryTab";
-import { CustomersTab } from "./admin/CustomersTab";
-import { CloseoutTab } from "./admin/CloseoutTab";
-import { EmailsTab } from "./admin/EmailsTab";
-import { NewMonthTab } from "./admin/NewMonthTab";
-import { SystemTab } from "./admin/SystemTab";
 import type { Settings, Category } from "../types";
+
+const BulletinTab = lazy(() => import("./admin/BulletinTab").then(m => ({ default: m.BulletinTab })));
+const ProductsTab = lazy(() => import("./admin/ProductsTab").then(m => ({ default: m.ProductsTab })));
+const OrdersTab = lazy(() => import("./admin/OrdersTab").then(m => ({ default: m.OrdersTab })));
+const HistoryTab = lazy(() => import("./admin/HistoryTab").then(m => ({ default: m.HistoryTab })));
+const CustomersTab = lazy(() => import("./admin/CustomersTab").then(m => ({ default: m.CustomersTab })));
+const CloseoutTab = lazy(() => import("./admin/CloseoutTab").then(m => ({ default: m.CloseoutTab })));
+const EmailsTab = lazy(() => import("./admin/EmailsTab").then(m => ({ default: m.EmailsTab })));
+const NewMonthTab = lazy(() => import("./admin/NewMonthTab").then(m => ({ default: m.NewMonthTab })));
+const SystemTab = lazy(() => import("./admin/SystemTab").then(m => ({ default: m.SystemTab })));
 
 interface AdminViewProps {
   settings: Settings;
@@ -80,15 +81,17 @@ export function AdminView({ settings, setSettings, cats, setCats }: AdminViewPro
         ))}
       </div>
 
-      {tab === "bulletin" && <BulletinTab settings={settings} setSettings={setSettings} />}
-      {tab === "products" && <ProductsTab cats={cats} setCats={setCats} />}
-      {tab === "orders" && <OrdersTab settings={settings} cats={cats} />}
-      {tab === "history" && <HistoryTab cats={cats} />}
-      {tab === "customers" && <CustomersTab />}
-      {tab === "closeout" && <CloseoutTab settings={settings} setSettings={setSettings} cats={cats} />}
-      {tab === "emails" && <EmailsTab settings={settings} cats={cats} />}
-      {tab === "newmonth" && <NewMonthTab settings={settings} setSettings={setSettings} />}
-      {tab === "system" && <SystemTab settings={settings} />}
+      <Suspense fallback={<div style={{ textAlign: "center", padding: 40, color: C.muted }}>載入中…</div>}>
+        {tab === "bulletin" && <BulletinTab settings={settings} setSettings={setSettings} />}
+        {tab === "products" && <ProductsTab cats={cats} setCats={setCats} />}
+        {tab === "orders" && <OrdersTab settings={settings} cats={cats} />}
+        {tab === "history" && <HistoryTab cats={cats} />}
+        {tab === "customers" && <CustomersTab />}
+        {tab === "closeout" && <CloseoutTab settings={settings} setSettings={setSettings} cats={cats} />}
+        {tab === "emails" && <EmailsTab settings={settings} cats={cats} />}
+        {tab === "newmonth" && <NewMonthTab settings={settings} setSettings={setSettings} />}
+        {tab === "system" && <SystemTab settings={settings} />}
+      </Suspense>
     </div>
   );
 }
