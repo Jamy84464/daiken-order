@@ -2,6 +2,16 @@
 
 本文件記錄大研訂購系統（Daiken Order）每個版本的變更內容。
 
+## [3.1.0] - 2026-03-15
+
+### 效能優化
+- **平行化資料載入**：settings 與 cats 改用 `Promise.all` 同時請求，減少 500-1000ms 等待
+- **字型載入優化**：從 CSS `@import` 改為 HTML `<link rel="preconnect">` + `<link rel="stylesheet">`，加速首次繪製（FCP）
+- **Admin lazy loading**：AdminView 及 9 個後台分頁改用 `React.lazy` + `Suspense`，一般使用者不載入後台程式碼
+
+### 新增
+- **版號自動同步**：新增 `scripts/sync-version.js`，`npm start` / `npm run build` 時自動從 `package.json` 同步版號到 `constants.ts`
+
 ## [3.0.1] - 2026-03-15
 
 ### 修復
