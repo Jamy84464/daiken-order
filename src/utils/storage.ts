@@ -21,6 +21,13 @@ const _loadedVersions: Record<string, number> = {};
 export const _pendingVerify: Record<string, ReturnType<typeof setTimeout>> = {};
 let _skipVerify = false;
 
+function _cancelAllPendingVerify(): void {
+  for (const key of Object.keys(_pendingVerify)) {
+    clearTimeout(_pendingVerify[key]);
+    delete _pendingVerify[key];
+  }
+}
+
 export async function load(key: string, sheet?: string): Promise<any> {
   try {
     let url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
@@ -106,6 +113,7 @@ const bkSave = (key: string, val: any) => save(key, val, BK_SHEET);
 
 export async function createBackup(label: string): Promise<BackupMeta> {
   _skipVerify = true;
+  _cancelAllPendingVerify();
   try {
     const settingsData = await load("settings");
     const catsData = await load("cats");
@@ -143,6 +151,7 @@ export async function createBackup(label: string): Promise<BackupMeta> {
 
 export async function restoreBackup(backupOrMeta: any): Promise<void> {
   _skipVerify = true;
+  _cancelAllPendingVerify();
   try {
     if (backupOrMeta && backupOrMeta.data) {
       const { settings, cats, customers, history, orders } = backupOrMeta.data;
@@ -202,23 +211,29 @@ export async function exportFullBackup(): Promise<any> {
 
 export async function importBackupFile(fileData: any): Promise<BackupMeta> {
   if (!fileData || !fileData.createdAt) throw new Error("格式不正確");
-  if (fileData.data) {
-    const { settings, cats, customers, history, orders } = fileData.data;
-    if (settings) await bkSave("settings", settings);
-    if (cats) await bkSave("cats", cats);
-    if (customers) await bkSave("customers", customers);
-    if (history) await bkSave("history", history);
-    const oKeys: string[] = [];
-    if (orders) {
-      for (const [k, v] of Object.entries(orders)) {
-        await bkSave(k, v);
-        oKeys.push(k);
+  _skipVerify = true;
+  _cancelAllPendingVerify();
+  try {
+    if (fileData.data) {
+      const { settings, cats, customers, history, orders } = fileData.data;
+      if (settings) await bkSave("settings", settings);
+      if (cats) await bkSave("cats", cats);
+      if (customers) await bkSave("customers", customers);
+      if (history) await bkSave("history", history);
+      const oKeys: string[] = [];
+      if (orders) {
+        for (const [k, v] of Object.entries(orders)) {
+          await bkSave(k, v);
+          oKeys.push(k);
+        }
       }
+      const meta: BackupMeta = { label: fileData.label, createdAt: fileData.createdAt, timestamp: fileData.timestamp, version: fileData.version, orderKeys: oKeys };
+      await bkSave("meta", meta);
+      return meta;
     }
-    const meta: BackupMeta = { label: fileData.label, createdAt: fileData.createdAt, timestamp: fileData.timestamp, version: fileData.version, orderKeys: oKeys };
-    await bkSave("meta", meta);
-    return meta;
+    await bkSave("meta", fileData);
+    return fileData;
+  } finally {
+    _skipVerify = false;
   }
-  await bkSave("meta", fileData);
-  return fileData;
 }
