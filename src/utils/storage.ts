@@ -19,6 +19,7 @@ function _notifySyncWarning(key: string): void {
 // Optimistic Locking：記錄每個 key 載入時的 _v 版本號
 const _loadedVersions: Record<string, number> = {};
 export const _pendingVerify: Record<string, ReturnType<typeof setTimeout>> = {};
+let _skipVerify = false;
 
 export async function load(key: string, sheet?: string): Promise<any> {
   try {
@@ -77,6 +78,7 @@ export async function save(key: string, val: any, sheet?: string): Promise<void>
   }
 
   // Read-back 驗證（取消前次同 key 的驗證，避免 race condition）
+  if (_skipVerify) return;
   if (_pendingVerify[key]) clearTimeout(_pendingVerify[key]);
   _pendingVerify[key] = setTimeout(async () => {
     delete _pendingVerify[key];
@@ -97,78 +99,78 @@ export async function save(key: string, val: any, sheet?: string): Promise<void>
   }, 4000);
 }
 
-// 取消所有待執行的 read-back 驗證（備份回復時使用，避免誤報同步異常）
-function _cancelAllPendingVerify(): void {
-  for (const key of Object.keys(_pendingVerify)) {
-    clearTimeout(_pendingVerify[key]);
-    delete _pendingVerify[key];
-  }
-}
-
 // ── BACKUP（備份與回復）──────────────────────────────────────────────────
 const BK_SHEET = "backup_app_data";
 const bkLoad = (key: string) => load(key, BK_SHEET);
 const bkSave = (key: string, val: any) => save(key, val, BK_SHEET);
 
 export async function createBackup(label: string): Promise<BackupMeta> {
-  const settingsData = await load("settings");
-  const catsData = await load("cats");
-  const customersData = await load("customers");
-  const historyData: HistoryEntry[] = (await load("history")) || [];
-  const oKeys: string[] = [];
-  if (settingsData) oKeys.push(orderKey(settingsData.year, settingsData.month));
-  historyData.forEach((h: HistoryEntry) => { if (h.key) oKeys.push(`orders_${h.key}`); });
-  const uniqueKeys = Array.from(new Set(oKeys));
-  const savedOrderKeys: string[] = [];
-  for (const k of uniqueKeys) {
-    const d = await load(k);
-    if (d && Object.keys(dataEntries(d)).length > 0) {
-      await bkSave(k, d);
-      savedOrderKeys.push(k);
+  _skipVerify = true;
+  try {
+    const settingsData = await load("settings");
+    const catsData = await load("cats");
+    const customersData = await load("customers");
+    const historyData: HistoryEntry[] = (await load("history")) || [];
+    const oKeys: string[] = [];
+    if (settingsData) oKeys.push(orderKey(settingsData.year, settingsData.month));
+    historyData.forEach((h: HistoryEntry) => { if (h.key) oKeys.push(`orders_${h.key}`); });
+    const uniqueKeys = Array.from(new Set(oKeys));
+    const savedOrderKeys: string[] = [];
+    for (const k of uniqueKeys) {
+      const d = await load(k);
+      if (d && Object.keys(dataEntries(d)).length > 0) {
+        await bkSave(k, d);
+        savedOrderKeys.push(k);
+      }
     }
+    await bkSave("settings", settingsData);
+    await bkSave("cats", catsData);
+    await bkSave("customers", customersData);
+    await bkSave("history", historyData);
+    const meta: BackupMeta = {
+      label: label || "手動備份",
+      createdAt: nowStr(),
+      timestamp: Date.now(),
+      version: VERSION,
+      orderKeys: savedOrderKeys
+    };
+    await bkSave("meta", meta);
+    return meta;
+  } finally {
+    _skipVerify = false;
   }
-  await bkSave("settings", settingsData);
-  await bkSave("cats", catsData);
-  await bkSave("customers", customersData);
-  await bkSave("history", historyData);
-  const meta: BackupMeta = {
-    label: label || "手動備份",
-    createdAt: nowStr(),
-    timestamp: Date.now(),
-    version: VERSION,
-    orderKeys: savedOrderKeys
-  };
-  await bkSave("meta", meta);
-  return meta;
 }
 
 export async function restoreBackup(backupOrMeta: any): Promise<void> {
-  if (backupOrMeta && backupOrMeta.data) {
-    const { settings, cats, customers, history, orders } = backupOrMeta.data;
-    if (settings) await save("settings", settings);
-    if (cats) await save("cats", cats);
-    if (customers) await save("customers", customers);
-    if (history) await save("history", history);
-    if (orders) { for (const [k, v] of Object.entries(orders)) await save(k, v); }
-    _cancelAllPendingVerify();
-    return;
-  }
-  const meta = backupOrMeta;
-  if (!meta || !meta.createdAt) throw new Error("無效的備份資料");
-  const [s, ca, cu, h] = await Promise.all([
-    bkLoad("settings"), bkLoad("cats"), bkLoad("customers"), bkLoad("history")
-  ]);
-  if (s) await save("settings", s);
-  if (ca) await save("cats", ca);
-  if (cu) await save("customers", cu);
-  if (h) await save("history", h);
-  if (meta.orderKeys) {
-    for (const k of meta.orderKeys) {
-      const d = await bkLoad(k);
-      if (d) await save(k, d);
+  _skipVerify = true;
+  try {
+    if (backupOrMeta && backupOrMeta.data) {
+      const { settings, cats, customers, history, orders } = backupOrMeta.data;
+      if (settings) await save("settings", settings);
+      if (cats) await save("cats", cats);
+      if (customers) await save("customers", customers);
+      if (history) await save("history", history);
+      if (orders) { for (const [k, v] of Object.entries(orders)) await save(k, v); }
+      return;
     }
+    const meta = backupOrMeta;
+    if (!meta || !meta.createdAt) throw new Error("無效的備份資料");
+    const [s, ca, cu, h] = await Promise.all([
+      bkLoad("settings"), bkLoad("cats"), bkLoad("customers"), bkLoad("history")
+    ]);
+    if (s) await save("settings", s);
+    if (ca) await save("cats", ca);
+    if (cu) await save("customers", cu);
+    if (h) await save("history", h);
+    if (meta.orderKeys) {
+      for (const k of meta.orderKeys) {
+        const d = await bkLoad(k);
+        if (d) await save(k, d);
+      }
+    }
+  } finally {
+    _skipVerify = false;
   }
-  _cancelAllPendingVerify();
 }
 
 export async function loadBackupMeta(): Promise<BackupMeta | null> {
