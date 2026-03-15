@@ -4,7 +4,7 @@
 
 這是大研生醫基於 React 的健康食品線上訂購系統，用於管理產品目錄、客戶訂單、Email 通知與月結作業。後端透過 Google Apps Script (GAS) 連接 Google Sheets 進行資料儲存。部署於 GitHub Pages。
 
-- **目前版本：** v2.9.2
+- **目前版本：** v3.0.0
 - **線上位址：** https://jamy84464.github.io/daiken-order
 
 ## 技術棧
@@ -12,7 +12,7 @@
 | 項目 | 技術 |
 |------|------|
 | 前端框架 | React 19 (Create React App) |
-| 語言 | JavaScript (ES6+) |
+| 語言 | TypeScript (strict mode) |
 | 樣式 | 行內樣式 + 設計 Token 系統 |
 | 字型 | Google Fonts (Noto Sans TC, Noto Serif TC) |
 | 測試 | Jest + @testing-library/react |
@@ -46,35 +46,71 @@ npm run deploy         # 建置並部署至 GitHub Pages
 ```
 daiken-order/
 ├── src/
-│   ├── App.js              # 主要應用程式 (~1772 行，包含所有元件與邏輯)
-│   ├── App.css             # 預設樣式
-│   ├── App.test.js         # 基本測試
-│   ├── index.js            # React 進入點
-│   ├── index.css           # 全域樣式 (含動畫 keyframes)
-│   ├── setupTests.js       # Jest 設定 (jest-dom)
-│   └── reportWebVitals.js  # 效能監測
+│   ├── types.ts                    # TypeScript 型別定義
+│   ├── constants.ts                # 常數、設計 Token、產品目錄初始資料
+│   ├── utils/
+│   │   ├── helpers.ts              # 通用工具函式
+│   │   ├── storage.ts              # localStorage 與 GAS 儲存層
+│   │   ├── email.ts                # Email 服務與 HTML 模板
+│   │   └── toast.ts                # Toast 通知系統
+│   ├── hooks/
+│   │   └── useIsMobile.ts          # RWD Hook
+│   ├── components/
+│   │   ├── ui.tsx                  # UI 原子元件 (Btn, Field, TextInput 等)
+│   │   ├── ProductCard.tsx         # 產品卡片元件
+│   │   ├── StatusBadge.tsx         # 狀態標籤元件
+│   │   ├── Toast.tsx               # Toast 通知元件
+│   │   ├── SyncStatus.tsx          # 同步狀態警告
+│   │   ├── EmailModal.tsx          # Email 預覽彈窗
+│   │   ├── ConfirmModal.tsx        # 確認對話框
+│   │   ├── ErrorBoundary.tsx       # 錯誤邊界
+│   │   ├── ShopView.tsx            # 商品瀏覽與結帳
+│   │   ├── MyOrderView.tsx         # 訂單查詢與修改
+│   │   ├── AdminView.tsx           # 後台管理入口
+│   │   └── admin/                  # 後台分頁元件
+│   │       ├── BulletinTab.tsx     # 公告管理
+│   │       ├── ProductsTab.tsx     # 產品目錄
+│   │       ├── OrdersTab.tsx       # 訂單管理
+│   │       ├── HistoryTab.tsx      # 歷史訂單
+│   │       ├── CustomersTab.tsx    # 訂閱者列表
+│   │       ├── CloseoutTab.tsx     # 月結作業
+│   │       ├── EmailsTab.tsx       # Email 通知
+│   │       ├── NewMonthTab.tsx     # 換月作業
+│   │       └── SystemTab.tsx       # 系統設定
+│   ├── App.tsx                     # 主要應用程式（路由 + 版面）
+│   ├── App.test.tsx                # 測試套件
+│   ├── App.css                     # 預設樣式
+│   ├── index.tsx                   # React 進入點
+│   ├── index.css                   # 全域樣式
+│   ├── setupTests.ts               # Jest 設定
+│   ├── reportWebVitals.ts          # 效能監測
+│   └── react-app-env.d.ts          # CRA TypeScript 型別
 ├── public/
-│   ├── index.html          # HTML 範本
-│   └── manifest.json       # PWA 設定
-├── package.json            # 依賴與腳本
-└── CLAUDE.md               # 本文件
+│   ├── index.html                  # HTML 範本（含 CSP 標頭）
+│   └── manifest.json               # PWA 設定
+├── .github/
+│   └── dependabot.yml              # Dependabot 設定
+├── tsconfig.json                   # TypeScript 設定
+├── package.json                    # 依賴與腳本
+├── CHANGELOG.md                    # 版本變更紀錄
+└── CLAUDE.md                       # 本文件
 ```
 
 ## 架構說明
 
-### 單檔案架構
+### 模組化架構
 
-所有主要程式碼集中在 `src/App.js`，包含：
+程式碼按功能拆分為獨立模組：
 
-1. **設計 Token 系統 (`C` 常數)** — 色彩與樣式常數
-2. **儲存層** — localStorage 與 GAS API 的讀寫邏輯
-3. **Email 服務** — `requestSendEmail()` 與 HTML 模板產生
-4. **UI 原子元件** — `Btn`, `Field`, `TextInput`, `SelInput`, `TextArea`
-5. **自訂 Hook** — `useIsMobile()` (RWD 判斷，768px 斷點)
+1. **型別定義 (`types.ts`)** — 所有 TypeScript 介面
+2. **常數 (`constants.ts`)** — 設計 Token (`C`)、版本號、產品初始資料
+3. **工具層 (`utils/`)** — 儲存、Email、Toast、通用函式
+4. **自訂 Hook (`hooks/`)** — `useIsMobile()` (RWD 判斷，768px 斷點)
+5. **UI 元件 (`components/`)** — 原子元件、Modal、頁面元件
 6. **頁面元件：**
    - `ShopView` — 商品瀏覽與結帳
    - `MyOrderView` — 訂單查詢與修改
-   - `AdminView` — 後台管理 (含多個分頁)
+   - `AdminView` — 後台管理 (含 9 個獨立分頁元件)
 
 ### Admin 後台分頁
 
