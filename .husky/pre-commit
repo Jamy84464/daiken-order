@@ -1,1 +1,2 @@
+node scripts/auto-version.js
 npx lint-staged
