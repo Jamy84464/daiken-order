@@ -1,6 +1,6 @@
 import type { BankInfo, Category } from "./types";
 
-export const VERSION = "v3.0.0";
+export const VERSION = "v3.0.1";
 export const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 export const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 export const DEFAULT_BANK: BankInfo = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
