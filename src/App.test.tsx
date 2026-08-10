@@ -53,15 +53,38 @@ beforeEach(() => {
   jest.spyOn(Storage.prototype, 'clear').mockImplementation(() => { Object.keys(localStorageData).forEach(k => delete localStorageData[k]); });
 
   // Mock fetch - default: return settings/cats from GAS
-  global.fetch = jest.fn((url) => {
+  // Track saved data for verifySaved to read back
+  const savedData: Record<string, any> = {};
+  global.fetch = jest.fn((url, opts?: any) => {
     if (typeof url === 'string') {
+      // POST requests (save, sendEmail)
+      if (opts && opts.method === 'POST') {
+        const body = opts.body;
+        if (body instanceof URLSearchParams) {
+          const action = body.get('action');
+          const key = body.get('key');
+          const value = body.get('value');
+          if (action === 'set' && key && value) {
+            savedData[key] = value;
+          }
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+      }
       if (url.includes('action=get&key=settings')) {
         return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockSettings) }) });
       }
       if (url.includes('action=get&key=customers')) {
+        if (savedData['customers']) {
+          return Promise.resolve({ json: () => Promise.resolve({ success: true, value: savedData['customers'] }) });
+        }
         return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCustomers) }) });
       }
       if (url.includes('action=get&key=orders_')) {
+        const match = url.match(/key=(orders_\d+_\d+)/);
+        const key = match ? match[1] : null;
+        if (key && savedData[key]) {
+          return Promise.resolve({ json: () => Promise.resolve({ success: true, value: savedData[key] }) });
+        }
         return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockOrders) }) });
       }
       if (url.includes('action=getCats')) {
@@ -72,7 +95,6 @@ beforeEach(() => {
         return Promise.resolve({ json: () => Promise.resolve({ success: true, authed }) });
       }
     }
-    // POST requests (save, sendEmail) — no-cors returns opaque response
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
   }) as jest.Mock;
 
@@ -640,12 +662,14 @@ describe('訂單送出', () => {
       expect(screen.getByText(/找到歷史紀錄/)).toBeInTheDocument();
     });
 
-    // 3. 送出
+    // 3. 送出（verifySaved 需要等待 2 秒 delay）
     fireEvent.click(screen.getByText('送出訂單 ✉️'));
 
     await waitFor(() => {
       expect(screen.getByText('🎉')).toBeInTheDocument();
-    });
+    }, { timeout: 15000 });
     expect(screen.getByText('訂單已送出！')).toBeInTheDocument();
-  });
+    expect(screen.getByText(/確認信已寄至/)).toBeInTheDocument();
+    expect(screen.getByText(/請確認收到確認信，才算訂購成功/)).toBeInTheDocument();
+  }, 20000);
 });

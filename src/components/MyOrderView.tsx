@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { C } from "../constants";
 import { flatProducts, orderKey, nowStr } from "../utils/helpers";
-import { load, save } from "../utils/storage";
+import { load, save, verifySaved } from "../utils/storage";
 import { requestSendEmail, genConfirmEmail } from "../utils/email";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -24,6 +24,7 @@ export function MyOrderView({ settings, cats }: MyOrderViewProps) {
   const [cart, setCart] = useState<Cart>({});
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
   const [saved, setSaved] = useState(false);
   const fp = useMemo(() => flatProducts(cats), [cats]);
   const isMobile = useIsMobile();
@@ -48,27 +49,45 @@ export function MyOrderView({ settings, cats }: MyOrderViewProps) {
   const handleSave = async () => {
     if (!Object.values(cart).some(q => q > 0)) { showToast("購物車是空的！"); return; }
     setSaving(true);
-    const key = orderKey(settings.year, settings.month);
-    const orders = (await load(key)) || {};
-    const oldOrder = orders[email.toLowerCase()];
-    const updated: Order = {
-      ...oldOrder, ...form, cart,
-      total: Object.entries(cart).filter(([, q]) => q > 0).reduce((s, [id, q]) => s + (fp[id]?.price || 0) * q, 0),
-      updatedAt: nowStr(),
-    };
-    orders[email.toLowerCase()] = updated;
-    await save(key, orders);
-    const cartChanged = JSON.stringify(oldOrder?.cart) !== JSON.stringify(cart);
-    const infoChanged = oldOrder?.recipientName !== form.recipientName || oldOrder?.recipientAddress !== form.recipientAddress || oldOrder?.recipientPhone !== form.recipientPhone;
-    if (cartChanged || infoChanged) {
-      requestSendEmail({
-        to: email.toLowerCase(),
-        subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂單已更新 — ${updated.ordererName}`,
-        body: genConfirmEmail(updated, cats),
-        isHtml: true,
-      });
+    try {
+      const key = orderKey(settings.year, settings.month);
+      const orders = (await load(key)) || {};
+      const oldOrder = orders[email.toLowerCase()];
+      const updated: Order = {
+        ...oldOrder, ...form, cart,
+        total: Object.entries(cart).filter(([, q]) => q > 0).reduce((s, [id, q]) => s + (fp[id]?.price || 0) * q, 0),
+        updatedAt: nowStr(),
+      };
+      orders[email.toLowerCase()] = updated;
+      setSaveStatus("儲存中…");
+      await save(key, orders);
+      const savedV = orders._v;
+      setSaveStatus("驗證寫入中…");
+      const verified = await verifySaved(key, email.toLowerCase(), savedV);
+      if (!verified) {
+        alert("訂單儲存驗證失敗，請稍後再試一次。若問題持續，請聯絡我們。");
+        setSaving(false);
+        setSaveStatus("");
+        return;
+      }
+      const cartChanged = JSON.stringify(oldOrder?.cart) !== JSON.stringify(cart);
+      const infoChanged = oldOrder?.recipientName !== form.recipientName || oldOrder?.recipientAddress !== form.recipientAddress || oldOrder?.recipientPhone !== form.recipientPhone;
+      if (cartChanged || infoChanged) {
+        setSaveStatus("寄送確認信…");
+        await requestSendEmail({
+          to: email.toLowerCase(),
+          subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂單已更新 — ${updated.ordererName}`,
+          body: genConfirmEmail(updated, cats),
+          isHtml: true,
+        });
+      }
+      setSaving(false); setSaveStatus(""); setOrder(updated); setEditMode(false); setSaved(true);
+    } catch (err) {
+      console.warn("Save error:", err);
+      showToast("儲存時發生錯誤，請再試一次。");
+      setSaving(false);
+      setSaveStatus("");
     }
-    setSaving(false); setOrder(updated); setEditMode(false); setSaved(true);
   };
 
   if (editMode) return (
@@ -125,7 +144,7 @@ export function MyOrderView({ settings, cats }: MyOrderViewProps) {
           <Field label="收件人姓名" required><TextInput value={form.recipientName} onChange={v => setForm(p => ({ ...p, recipientName: v }))} /></Field>
           <Field label="收件地址" required><TextInput value={form.recipientAddress} onChange={v => setForm(p => ({ ...p, recipientAddress: v }))} /></Field>
           <Field label="收件人電話" required><TextInput value={form.recipientPhone} onChange={v => setForm(p => ({ ...p, recipientPhone: v }))} /></Field>
-          <Btn onClick={handleSave} disabled={saving} full>✅ {saving ? "儲存中…" : "確認更新訂單"}</Btn>
+          <Btn onClick={handleSave} disabled={saving} full>✅ {saving ? (saveStatus || "儲存中…") : "確認更新訂單"}</Btn>
           </div>
         </div>
       </div>

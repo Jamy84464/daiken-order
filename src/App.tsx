@@ -3,7 +3,7 @@ import { VERSION, C, globalCSS, DEFAULT_BULLETIN, DEFAULT_BANK, GAS_URL, INIT_CA
 import { load, save } from "./utils/storage";
 import { isValidEmail, orderKey, nowStr, dataEntries, flatProducts } from "./utils/helpers";
 import { emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail } from "./utils/email";
-import { _saveVersions, _pendingVerify } from "./utils/storage";
+import { _saveVersions, _pendingVerify, loadFromGAS, verifySaved } from "./utils/storage";
 import { Btn } from "./components/ui";
 import { EmailModal } from "./components/EmailModal";
 import { SyncStatus } from "./components/SyncStatus";
@@ -81,10 +81,13 @@ function App() {
           <div className="pop" style={{ background: C.white, borderRadius: 18, padding: 30, maxWidth: 420, width: "100%", textAlign: "center" }}>
             <div style={{ fontSize: "2.8rem", marginBottom: 10 }}>🎉</div>
             <div className="serif" style={{ fontSize: "1.2rem", fontWeight: 700, color: C.green, marginBottom: 10 }}>訂單已送出！</div>
-            <div style={{ fontSize: "0.85rem", color: C.muted, lineHeight: 2, marginBottom: 18 }}>
+            <div style={{ fontSize: "0.85rem", color: C.muted, lineHeight: 2, marginBottom: 14 }}>
               <strong style={{ color: C.text }}>{successModal.ordererName}</strong> 感謝訂購！<br />
               合計 <strong style={{ color: C.green }}>NT${successModal.total.toLocaleString()}</strong><br />
-              確認信將寄至 <strong>{successModal.email}</strong>
+              確認信已寄至 <strong>{successModal.email}</strong>
+            </div>
+            <div style={{background:"#fffbeb",border:"1px solid #f6e05e",borderRadius:10,padding:"10px 14px",fontSize:"0.82rem",color:"#744210",lineHeight:1.8,marginBottom:18,textAlign:"left"}}>
+              ⚠️ 請確認收到確認信，才算訂購成功。<br/>若未收到，請檢查垃圾信件匣或與我聯繫。
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
               <Btn onClick={() => setSuccessModal(null)} color={C.green}>關閉</Btn>
@@ -155,4 +158,4 @@ export { AppWithBoundary as default };
 // ── TEST EXPORTS（僅供單元測試使用）────────────────────────────────────────────
 export { isValidEmail, orderKey, nowStr, dataEntries, flatProducts };
 export { emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail };
-export { save, load, _saveVersions, _pendingVerify };
+export { save, load, loadFromGAS, verifySaved, _saveVersions, _pendingVerify };

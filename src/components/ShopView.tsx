@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from "react";
 import { C } from "../constants";
 import { isValidEmail, flatProducts, orderKey, nowStr } from "../utils/helpers";
-import { load, save } from "../utils/storage";
+import { load, save, verifySaved } from "../utils/storage";
 import { requestSendEmail, genConfirmEmail } from "../utils/email";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -20,6 +20,7 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
   const [cart, setCart] = useState<Cart>({});
   const [form, setForm] = useState({ email: "", emailConfirm: "", ordererName: "", phone: "", relation: "", recipientName: "", recipientAddress: "", recipientPhone: "" });
   const [submitting, setSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState("");
   const [errors, setErrors] = useState<Record<string, string | null>>({});
   const [emailLookupDone, setEmailLookupDone] = useState(false);
   const [emailChecked, setEmailChecked] = useState(false);
@@ -92,7 +93,9 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
         updatedAt: null,
       };
       existing[ek] = order;
+      setSubmitStatus("儲存訂單中…");
       await save(key, existing);
+      const savedV = existing._v;
       const custs = (await load("customers")) || {};
       custs[ek] = {
         name: form.ordererName,
@@ -107,14 +110,24 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
         firstOrderAt: custs[ek]?.firstOrderAt || nowStr(),
       };
       await save("customers", custs);
+      setSubmitStatus("驗證寫入中…");
+      const verified = await verifySaved(key, ek, savedV);
+      if (!verified) {
+        alert("訂單儲存驗證失敗，請稍後再試一次。若問題持續，請聯絡我們。");
+        setSubmitting(false);
+        setSubmitStatus("");
+        return;
+      }
+      setSubmitStatus("寄送確認信…");
       const emailContent = genConfirmEmail(order, cats);
-      requestSendEmail({
+      await requestSendEmail({
         to: ek,
         subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂購確認 — ${form.ordererName}`,
         body: emailContent,
         isHtml: true,
       });
       setSubmitting(false);
+      setSubmitStatus("");
       onOrderSuccess(order);
       setCart({});
       setForm({ email: "", emailConfirm: "", ordererName: "", phone: "", relation: "", recipientName: "", recipientAddress: "", recipientPhone: "" });
@@ -238,7 +251,7 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
           <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v => { recipientLinked.current = false; setF("recipientPhone", v); }} type="tel" placeholder="0912-345-678" /></Field>
 
           <Btn onClick={submit} disabled={submitting || lookingUp} full color={C.green} style={{ marginTop: 4, padding: "13px" }}>
-            {submitting ? "處理中…" : "送出訂單 ✉️"}
+            {submitting ? (submitStatus || "處理中…") : "送出訂單 ✉️"}
           </Btn>
           </div>
         </div>
