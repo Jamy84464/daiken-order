@@ -53,6 +53,25 @@ export async function load(key: string, sheet?: string): Promise<any> {
   }
 }
 
+export async function loadFromGAS(key: string): Promise<any> {
+  const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
+  const res = await fetch(url);
+  const json = await res.json();
+  if (json.success && json.value) return JSON.parse(json.value);
+  return null;
+}
+
+export async function verifySaved(key: string, identifier: string, expectedV: number, retries = 2, delay = 2000): Promise<boolean> {
+  for (let i = 0; i <= retries; i++) {
+    await new Promise(r => setTimeout(r, delay));
+    try {
+      const remote = await loadFromGAS(key);
+      if (remote && remote[identifier] && remote._v >= expectedV) return true;
+    } catch (e) { /* 繼續重試 */ }
+  }
+  return false;
+}
+
 export async function save(key: string, val: any, sheet?: string): Promise<void> {
   // 對訂單和顧客資料加入版本號（Optimistic Locking）
   const needsVersion = !sheet && (key.startsWith("orders_") || key === "customers");
