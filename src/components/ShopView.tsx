@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from "react";
 import { C } from "../constants";
 import { isValidEmail, flatProducts, orderKey, nowStr } from "../utils/helpers";
-import { load, save, verifySaved } from "../utils/storage";
+import { load, save, loadFromGAS, verifySaved } from "../utils/storage";
 import { requestSendEmail, genConfirmEmail } from "../utils/email";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -81,7 +81,7 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
     setSubmitting(true);
     try {
       const key = orderKey(settings.year, settings.month);
-      const existing = (await load(key)) || {};
+      const existing = (await loadFromGAS(key)) || {};
       const ek = form.email.trim().toLowerCase();
       const order: Order = {
         ordererName: form.ordererName, email: ek, phone: form.phone,
@@ -96,7 +96,7 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
       setSubmitStatus("儲存訂單中…");
       await save(key, existing);
       const savedV = existing._v;
-      const custs = (await load("customers")) || {};
+      const custs = (await loadFromGAS("customers")) || {};
       custs[ek] = {
         name: form.ordererName,
         email: ek,
@@ -135,7 +135,7 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
       setEmailChecked(false);
     } catch (err) {
       console.warn("Submit error:", err);
-      showToast("送出時發生錯誤，您的表單資料已保留，請再試一次。");
+      showToast("無法連線伺服器，您的表單資料已保留，請檢查網路後再試。");
       setSubmitting(false);
       return;
     }
