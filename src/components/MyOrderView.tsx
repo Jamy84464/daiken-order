@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { C } from "../constants";
 import { flatProducts, orderKey, nowStr } from "../utils/helpers";
-import { load, save, verifySaved } from "../utils/storage";
+import { load, save, loadFromGAS, verifySaved } from "../utils/storage";
 import { requestSendEmail, genConfirmEmail } from "../utils/email";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
@@ -51,7 +51,7 @@ export function MyOrderView({ settings, cats }: MyOrderViewProps) {
     setSaving(true);
     try {
       const key = orderKey(settings.year, settings.month);
-      const orders = (await load(key)) || {};
+      const orders = (await loadFromGAS(key)) || {};
       const oldOrder = orders[email.toLowerCase()];
       const updated: Order = {
         ...oldOrder, ...form, cart,

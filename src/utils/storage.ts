@@ -57,7 +57,11 @@ export async function loadFromGAS(key: string): Promise<any> {
   const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
   const res = await fetch(url);
   const json = await res.json();
-  if (json.success && json.value) return JSON.parse(json.value);
+  if (json.success && json.value) {
+    const parsed = JSON.parse(json.value);
+    if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
+    return parsed;
+  }
   return null;
 }
 
