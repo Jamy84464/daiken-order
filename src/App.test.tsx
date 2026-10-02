@@ -134,14 +134,14 @@ describe('App 基本載入', () => {
 
   test('顯示月份公告', () => {
     render(<App />);
-    expect(screen.getByText(/2026年3月的團購/)).toBeInTheDocument();
+    expect(screen.getByText(/2026年3月/)).toBeInTheDocument();
   });
 
   test('顯示營業中狀態', () => {
     render(<App />);
-    expect(screen.getByText(/2026年3月的團購/)).toBeInTheDocument();
-    // 綠點表示營業中
-    expect(screen.getByText(/🟢/)).toBeInTheDocument();
+    expect(screen.getByText(/2026年3月/)).toBeInTheDocument();
+    // 色點 + 文字表示營業中
+    expect(screen.getByText(/團購進行中/)).toBeInTheDocument();
   });
 });
 
@@ -151,14 +151,14 @@ describe('App 基本載入', () => {
 describe('頁面導覽', () => {
   test('有三個導覽按鈕', () => {
     render(<App />);
-    expect(screen.getByText('🛒 訂購')).toBeInTheDocument();
-    expect(screen.getByText('🔍 查詢/修改訂單')).toBeInTheDocument();
-    expect(screen.getByText('⚙️ 後台')).toBeInTheDocument();
+    expect(screen.getByText('訂購')).toBeInTheDocument();
+    expect(screen.getByText('查訂單')).toBeInTheDocument();
+    expect(screen.getByLabelText('後台')).toBeInTheDocument();
   });
 
   test('點擊後台按鈕顯示登入頁面', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
     });
@@ -166,17 +166,17 @@ describe('頁面導覽', () => {
 
   test('點擊查詢/修改訂單顯示查詢頁面', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
     expect(screen.getByText(/請輸入.*Email/)).toBeInTheDocument();
   });
 
   test('點擊訂購回到主頁', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('🛒 訂購'));
+    fireEvent.click(screen.getByText('訂購'));
     expect(screen.getByText(/購物車/)).toBeInTheDocument();
   });
 });
@@ -275,7 +275,7 @@ describe('購物車操作', () => {
 describe('訂單表單驗證', () => {
   test('未填寫任何欄位送出顯示錯誤', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('送出訂單 ✉️'));
+    fireEvent.click(screen.getByText('送出訂單'));
     // 應該顯示錯誤訊息
     expect(screen.getByText('請至少選擇一項商品')).toBeInTheDocument();
     expect(screen.getByText('請填寫有效 Email')).toBeInTheDocument();
@@ -283,7 +283,7 @@ describe('訂單表單驗證', () => {
 
   test('必填欄位未填顯示必填提示', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('送出訂單 ✉️'));
+    fireEvent.click(screen.getByText('送出訂單'));
     const requiredErrors = screen.getAllByText('必填');
     expect(requiredErrors.length).toBeGreaterThanOrEqual(4); // 姓名、手機、關係、收件人*3
   });
@@ -304,7 +304,7 @@ describe('已結單狀態', () => {
     const closedSettings = { ...mockSettings, isOpen: false };
     localStorageData.settings = JSON.stringify(closedSettings);
     render(<App />);
-    const myOrderBtn = screen.getByText('🔍 查詢/修改訂單');
+    const myOrderBtn = screen.getByText('查訂單');
     // 按鈕應有 opacity 降低的效果（disabled 狀態）
     expect(myOrderBtn.style.opacity).toBe('0.4');
   });
@@ -316,14 +316,14 @@ describe('已結單狀態', () => {
 describe('查詢訂單', () => {
   test('顯示 Email 輸入欄位和查詢按鈕', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
     expect(screen.getByPlaceholderText('your@email.com')).toBeInTheDocument();
     expect(screen.getByText('查詢訂單')).toBeInTheDocument();
   });
 
   test('輸入 Email 查詢後顯示訂單', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
 
     const emailInput = screen.getByPlaceholderText('your@email.com');
     fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
@@ -336,7 +336,7 @@ describe('查詢訂單', () => {
 
   test('查無訂單顯示提示', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
 
     const emailInput = screen.getByPlaceholderText('your@email.com');
     fireEvent.change(emailInput, { target: { value: 'notfound@example.com' } });
@@ -354,7 +354,7 @@ describe('查詢訂單', () => {
 describe('管理員登入', () => {
   test('顯示密碼欄位和登入按鈕', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
     });
@@ -363,7 +363,7 @@ describe('管理員登入', () => {
 
   test('密碼正確可以登入', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
@@ -379,7 +379,7 @@ describe('管理員登入', () => {
 
   test('密碼錯誤顯示錯誤提示', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
@@ -395,7 +395,7 @@ describe('管理員登入', () => {
 
   test('空密碼不送出', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByText('登入')).toBeInTheDocument();
     });
@@ -413,7 +413,7 @@ describe('管理員登入', () => {
 describe('管理後台分頁', () => {
   const loginAdmin = async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
     });
@@ -476,7 +476,7 @@ describe('管理後台分頁', () => {
 describe('訂單管理', () => {
   const loginAndGoToOrders = async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
     });
@@ -635,7 +635,8 @@ describe('Email 歷史資料帶入', () => {
 describe('產品連結', () => {
   test('產品名稱有外部連結', () => {
     render(<App />);
-    const link = screen.getByRole('link', { name: /德國頂級魚油 🔗/ });
+    // 🔗 已改為 aria-hidden 的線性圖示，無障礙名稱只剩商品名
+    const link = screen.getByRole('link', { name: '德國頂級魚油' });
     expect(link).toHaveAttribute('href', 'https://example.com/p1');
     expect(link).toHaveAttribute('target', '_blank');
   });
@@ -663,13 +664,13 @@ describe('訂單送出', () => {
     });
 
     // 3. 送出（verifySaved 需要等待 2 秒 delay）
-    fireEvent.click(screen.getByText('送出訂單 ✉️'));
+    fireEvent.click(screen.getByText('送出訂單'));
 
     await waitFor(() => {
-      expect(screen.getByText('🎉')).toBeInTheDocument();
+      expect(screen.getByText('訂單已送出')).toBeInTheDocument();
     }, { timeout: 15000 });
-    expect(screen.getByText('訂單已送出！')).toBeInTheDocument();
+    expect(screen.getByText('完成')).toBeInTheDocument();
     expect(screen.getByText(/確認信已寄至/)).toBeInTheDocument();
-    expect(screen.getByText(/請確認收到確認信，才算訂購成功/)).toBeInTheDocument();
+    expect(screen.getByText(/收到確認信才算訂購成功/)).toBeInTheDocument();
   }, 20000);
 });
