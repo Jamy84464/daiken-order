@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { C } from "../../constants";
 import { flatProducts, orderKey, dataEntries } from "../../utils/helpers";
-import { load, save, loadStrict } from "../../utils/storage";
+import { save, loadStrict } from "../../utils/storage";
+import { showToast } from "../../utils/toast";
 import { ConfirmModal } from "../ConfirmModal";
 import { LoadError } from "./LoadState";
 import type { Settings, Category, Order } from "../../types";
@@ -29,33 +30,77 @@ export function OrdersTab({ settings, cats }: OrdersTabProps) {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  const toggleStatus = async (email: string) => {
-    if (busyOp || !orders) return;
-    setBusyOp(email);
+  /**
+   * 寫入前重新讀取遠端，只改動目標那一筆，再整份寫回。
+   *
+   * 原本的寫法是拿掛載當下的 orders state 整份覆蓋 —— 你早上開後台、
+   * 中午客人下單、下午按「已處理」，中午那筆就會被抹掉，
+   * 而且完全不需要網路故障就會發生。
+   *
+   * mutate 回傳 null 代表放棄寫入。
+   */
+  const mutateOrders = async (
+    email: string,
+    mutate: (fresh: Record<string, Order>) => Record<string, Order> | null,
+  ): Promise<Record<string, Order> | null> => {
     const key = orderKey(settings.year, settings.month);
-    const upd = { ...orders, [email]: { ...orders[email], status: orders[email].status === "handled" ? "pending" : "handled" } };
-    setOrders(upd); await save(key, upd);
+    const r = await loadStrict(key);
+    if (!r.ok) {
+      showToast(`讀取失敗（${r.error}），未更動任何資料，請稍後再試。`);
+      return null;
+    }
+    const fresh = (r.data || {}) as Record<string, Order>;
+    if (!fresh[email]) {
+      showToast("這筆訂單在雲端已不存在，畫面已更新。");
+      setOrders(fresh);
+      return null;
+    }
+    const before = Object.keys(dataEntries(fresh)).length;
+    const known = orders ? Object.keys(dataEntries(orders)).length : before;
+    const upd = mutate(fresh);
+    if (!upd) return null;
+    await save(key, upd);
+    setOrders(upd);
+    // 讓保護機制被看見：期間有新訂單進來時明說，否則使用者不會知道差點覆蓋掉
+    if (before > known) showToast(`期間新增了 ${before - known} 筆訂單，已一併保留。`, "success");
+    return upd;
+  };
+
+  const toggleStatus = async (email: string) => {
+    if (busyOp) return;
+    setBusyOp(email);
+    await mutateOrders(email, fresh => ({
+      ...fresh,
+      [email]: { ...fresh[email], status: fresh[email].status === "handled" ? "pending" : "handled" },
+    }));
     setBusyOp(null);
   };
 
   const deleteOrder = async (email: string) => {
-    if (busyOp || !orders) return;
+    if (busyOp) return;
     setBusyOp(email);
-    const key = orderKey(settings.year, settings.month);
-    const upd = { ...orders };
-    delete upd[email];
-    setOrders(upd); await save(key, upd);
-    try {
-      const h = (await load("history")) || [];
-      const monthKey = `${settings.year}_${String(settings.month).padStart(2, "0")}`;
-      const idx = h.findIndex((x: any) => x.key === monthKey);
-      if (idx >= 0) {
-        const list = Object.values(dataEntries(upd));
-        h[idx].orderCount = list.length;
-        h[idx].totalAmt = list.reduce((s: number, o: any) => s + o.total, 0);
-        await save("history", h);
+    const upd = await mutateOrders(email, fresh => {
+      const next = { ...fresh };
+      delete next[email];
+      return next;
+    });
+    if (upd) {
+      // 歷史紀錄的筆數／金額要跟著更新；這裡同樣先讀再改，讀不到就跳過不寫
+      const r = await loadStrict("history");
+      if (r.ok && Array.isArray(r.data)) {
+        const h = r.data;
+        const monthKey = `${settings.year}_${String(settings.month).padStart(2, "0")}`;
+        const idx = h.findIndex((x: any) => x.key === monthKey);
+        if (idx >= 0) {
+          const list = Object.values(dataEntries(upd)) as Order[];
+          h[idx].orderCount = list.length;
+          h[idx].totalAmt = list.reduce((s: number, o) => s + o.total, 0);
+          await save("history", h);
+        }
+      } else if (!r.ok) {
+        console.warn("update history after delete skipped:", r.error);
       }
-    } catch (e) { console.warn("update history after delete:", e); }
+    }
     setBusyOp(null);
     setConfirmDelete(null);
   };

@@ -42,7 +42,10 @@ const mockCustomers = {
 
 // localStorage mock
 const localStorageData: Record<string, string | undefined> = {};
+// 模組層級：測試需要檢查實際 POST 出去的內容
+const savedData: Record<string, any> = {};
 beforeEach(() => {
+  Object.keys(savedData).forEach(k => delete savedData[k]);
   Object.keys(localStorageData).forEach(k => delete localStorageData[k]);
   localStorageData.settings = JSON.stringify(mockSettings);
   localStorageData.cats = JSON.stringify(mockCats);
@@ -54,7 +57,6 @@ beforeEach(() => {
 
   // Mock fetch - default: return settings/cats from GAS
   // Track saved data for verifySaved to read back
-  const savedData: Record<string, any> = {};
   global.fetch = jest.fn((url, opts?: any) => {
     if (typeof url === 'string') {
       // POST requests (save, sendEmail)
@@ -701,5 +703,60 @@ describe('後台讀取失敗', () => {
     }, { timeout: 5000 });
     // 關鍵：絕不能把讀取失敗顯示成「沒有訂單」
     expect(screen.queryByText('本月尚無訂單')).not.toBeInTheDocument();
+  }, 15000);
+});
+
+
+// ── 21. 後台寫入不得覆蓋期間新進的訂單 ──────────────────────────────────────
+
+describe('後台寫入保護', () => {
+  test('按「已處理」時，分頁掛載後才進來的訂單必須保留', async () => {
+    const KEY = 'orders_2026_03';
+    // 後台載入時只看得到 1 筆
+    let remoteOrders: Record<string, any> = { ...mockOrders };
+
+    const baseFetch = global.fetch as jest.Mock;
+    global.fetch = jest.fn((url: any, opts: any) => {
+      if (typeof url === 'string' && url.includes(`action=get&key=${KEY}`)) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(remoteOrders) }) });
+      }
+      return baseFetch(url, opts);
+    }) as jest.Mock;
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('後台'));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: 'admin123' } });
+    fireEvent.click(screen.getByText('登入'));
+    await waitFor(() => {
+      expect(screen.getByText('測試用戶')).toBeInTheDocument();
+    });
+
+    // 後台已經載入後，前台有新客人下單 —— 這筆不在後台的 state 裡
+    remoteOrders = {
+      ...remoteOrders,
+      'late@example.com': {
+        ordererName: '後來的客人', email: 'late@example.com', phone: '0911222333',
+        relation: '朋友', recipientName: '後來的客人', recipientAddress: '台中市',
+        recipientPhone: '0911222333', cart: { p1: 1 }, total: 700,
+        status: 'pending', createdAt: '2026/3/2 09:00:00', updatedAt: null,
+      },
+    };
+
+    // 「✅ 已處理」同時是統計卡標籤與按鈕，要指定 button
+    fireEvent.click(screen.getByRole('button', { name: '✅ 已處理' }));
+
+    await waitFor(() => {
+      expect(savedData[KEY]).toBeTruthy();
+    }, { timeout: 5000 });
+
+    const written = JSON.parse(savedData[KEY]);
+    // 目標那筆確實被標記為已處理
+    expect(written['test@example.com'].status).toBe('handled');
+    // 關鍵：期間新進的訂單沒有被覆蓋掉
+    expect(written['late@example.com']).toBeTruthy();
+    expect(written['late@example.com'].ordererName).toBe('後來的客人');
   }, 15000);
 });

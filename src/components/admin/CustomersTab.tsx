@@ -27,15 +27,33 @@ export function CustomersTab() {
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   const deleteCustomer = async (email: string) => {
-    if (!customers) return;
     setBusyDelete(true);
-    const updated = { ...customers };
+    // 寫入前重新讀：原本拿掛載當下的 state 整份覆蓋，
+    // 期間由前台新註冊的訂購人會被一併抹掉。
+    const r = await loadStrict("customers");
+    if (!r.ok) {
+      showToast(`讀取失敗（${r.error}），未刪除任何資料，請稍後再試。`);
+      setBusyDelete(false);
+      setConfirmDelete(null);
+      return;
+    }
+    const fresh = (r.data || {}) as Record<string, Customer>;
+    const known = customers ? Object.keys(dataEntries(customers)).length : 0;
+    const before = Object.keys(dataEntries(fresh)).length;
+    if (!fresh[email]) {
+      showToast("這位訂購人在雲端已不存在，畫面已更新。");
+      setCustomers(fresh);
+      setBusyDelete(false);
+      setConfirmDelete(null);
+      return;
+    }
+    const updated = { ...fresh };
     delete updated[email];
     await save("customers", updated);
     setCustomers(updated);
     setConfirmDelete(null);
     setBusyDelete(false);
-    showToast("已刪除", "success");
+    showToast(before > known ? `已刪除；期間新增的 ${before - known} 位訂購人已保留。` : "已刪除", "success");
   };
 
   if (loadErr) return <LoadError message={loadErr} onRetry={fetchCustomers} busy={reloading} />;

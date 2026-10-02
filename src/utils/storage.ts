@@ -167,21 +167,44 @@ export async function createBackup(label: string): Promise<BackupMeta> {
   _skipVerify = true;
   _cancelAllPendingVerify();
   try {
-    const settingsData = await load("settings");
-    const catsData = await load("cats");
-    const customersData = await load("customers");
-    const historyData: HistoryEntry[] = (await load("history")) || [];
+    // 先把要備份的資料全部讀齊再開始寫。
+    // 原本是邊讀邊寫、而且沒有 null 檢查：任何一項讀取失敗就會把 null
+    // 寫進備份表，等於在備份的當下摧毀上一份還能用的備份。
+    // 結單會自動呼叫這裡，風險特別高。
+    const [settingsR, catsR, customersR, historyR] = await Promise.all([
+      loadStrict("settings"), loadStrict("cats"), loadStrict("customers"), loadStrict("history"),
+    ]);
+    const failed = [
+      !settingsR.ok && "settings", !catsR.ok && "cats",
+      !customersR.ok && "customers", !historyR.ok && "history",
+    ].filter(Boolean);
+    if (failed.length) {
+      throw new Error(`讀取失敗（${failed.join("、")}），為保護既有備份已中止`);
+    }
+
+    const settingsData = (settingsR as { ok: true; data: any }).data;
+    const catsData = (catsR as { ok: true; data: any }).data;
+    const customersData = (customersR as { ok: true; data: any }).data;
+    const historyRaw = (historyR as { ok: true; data: any }).data;
+    const historyData: HistoryEntry[] = Array.isArray(historyRaw) ? historyRaw : [];
+
     const oKeys: string[] = [];
     if (settingsData) oKeys.push(orderKey(settingsData.year, settingsData.month));
     historyData.forEach((h: HistoryEntry) => { if (h.key) oKeys.push(`orders_${h.key}`); });
     const uniqueKeys = Array.from(new Set(oKeys));
-    const savedOrderKeys: string[] = [];
+
+    // 訂單同樣先全部讀齊；任何一個月讀不到就中止，不要寫出殘缺的備份
+    const orderData: Record<string, any> = {};
     for (const k of uniqueKeys) {
-      const d = await load(k);
-      if (d && Object.keys(dataEntries(d)).length > 0) {
-        await bkSave(k, d);
-        savedOrderKeys.push(k);
-      }
+      const r = await loadStrict(k);
+      if (!r.ok) throw new Error(`讀取 ${k} 失敗（${r.error}），為保護既有備份已中止`);
+      if (r.data && Object.keys(dataEntries(r.data)).length > 0) orderData[k] = r.data;
+    }
+
+    const savedOrderKeys: string[] = [];
+    for (const [k, d] of Object.entries(orderData)) {
+      await bkSave(k, d);
+      savedOrderKeys.push(k);
     }
     await bkSave("settings", settingsData);
     await bkSave("cats", catsData);
