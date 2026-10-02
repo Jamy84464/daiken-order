@@ -90,14 +90,14 @@ export function SystemTab({ settings }: SystemTabProps) {
   };
   const clearHistory = async () => {
     setBusy(true); setResetResult(null);
-    await save("history", {}); localStorage.removeItem("history");
+    await save("history", []); localStorage.removeItem("history");
     setResetResult("已清除歷史訂單");
     setBusy(false); setConfirmTarget(null);
   };
   const clearAll = async () => {
     setBusy(true); setResetResult(null);
     const key = orderKey(settings.year, settings.month);
-    await Promise.all([save(key, {}), save("customers", {}), save("history", {})]);
+    await Promise.all([save(key, {}), save("customers", {}), save("history", [])]);
     localStorage.removeItem(key); localStorage.removeItem("customers"); localStorage.removeItem("history");
     setResetResult("已清除本月訂單、訂購人資訊、歷史訂單（產品目錄與設定保留）");
     setBusy(false); setConfirmTarget(null);

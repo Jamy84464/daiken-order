@@ -42,7 +42,10 @@ const mockCustomers = {
 
 // localStorage mock
 const localStorageData: Record<string, string | undefined> = {};
+// 模組層級：測試需要檢查實際 POST 出去的內容
+const savedData: Record<string, any> = {};
 beforeEach(() => {
+  Object.keys(savedData).forEach(k => delete savedData[k]);
   Object.keys(localStorageData).forEach(k => delete localStorageData[k]);
   localStorageData.settings = JSON.stringify(mockSettings);
   localStorageData.cats = JSON.stringify(mockCats);
@@ -54,7 +57,6 @@ beforeEach(() => {
 
   // Mock fetch - default: return settings/cats from GAS
   // Track saved data for verifySaved to read back
-  const savedData: Record<string, any> = {};
   global.fetch = jest.fn((url, opts?: any) => {
     if (typeof url === 'string') {
       // POST requests (save, sendEmail)
@@ -71,28 +73,28 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
       }
       if (url.includes('action=get&key=settings')) {
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockSettings) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockSettings) }) });
       }
       if (url.includes('action=get&key=customers')) {
         if (savedData['customers']) {
-          return Promise.resolve({ json: () => Promise.resolve({ success: true, value: savedData['customers'] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: savedData['customers'] }) });
         }
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCustomers) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCustomers) }) });
       }
       if (url.includes('action=get&key=orders_')) {
         const match = url.match(/key=(orders_\d+_\d+)/);
         const key = match ? match[1] : null;
         if (key && savedData[key]) {
-          return Promise.resolve({ json: () => Promise.resolve({ success: true, value: savedData[key] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: savedData[key] }) });
         }
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockOrders) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockOrders) }) });
       }
       if (url.includes('action=getCats')) {
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCats) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCats) }) });
       }
       if (url.includes('action=verifyAdmin')) {
         const authed = url.includes('pw=admin123');
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, authed }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, authed }) });
       }
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
@@ -134,14 +136,14 @@ describe('App 基本載入', () => {
 
   test('顯示月份公告', () => {
     render(<App />);
-    expect(screen.getByText(/2026年3月的團購/)).toBeInTheDocument();
+    expect(screen.getByText(/2026年3月/)).toBeInTheDocument();
   });
 
   test('顯示營業中狀態', () => {
     render(<App />);
-    expect(screen.getByText(/2026年3月的團購/)).toBeInTheDocument();
-    // 綠點表示營業中
-    expect(screen.getByText(/🟢/)).toBeInTheDocument();
+    expect(screen.getByText(/2026年3月/)).toBeInTheDocument();
+    // 色點 + 文字表示營業中
+    expect(screen.getByText(/團購進行中/)).toBeInTheDocument();
   });
 });
 
@@ -151,14 +153,14 @@ describe('App 基本載入', () => {
 describe('頁面導覽', () => {
   test('有三個導覽按鈕', () => {
     render(<App />);
-    expect(screen.getByText('🛒 訂購')).toBeInTheDocument();
-    expect(screen.getByText('🔍 查詢/修改訂單')).toBeInTheDocument();
-    expect(screen.getByText('⚙️ 後台')).toBeInTheDocument();
+    expect(screen.getByText('訂購')).toBeInTheDocument();
+    expect(screen.getByText('查訂單')).toBeInTheDocument();
+    expect(screen.getByLabelText('後台')).toBeInTheDocument();
   });
 
   test('點擊後台按鈕顯示登入頁面', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
     });
@@ -166,17 +168,17 @@ describe('頁面導覽', () => {
 
   test('點擊查詢/修改訂單顯示查詢頁面', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
     expect(screen.getByText(/請輸入.*Email/)).toBeInTheDocument();
   });
 
   test('點擊訂購回到主頁', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByText('🔐 管理員登入')).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText('🛒 訂購'));
+    fireEvent.click(screen.getByText('訂購'));
     expect(screen.getByText(/購物車/)).toBeInTheDocument();
   });
 });
@@ -275,7 +277,7 @@ describe('購物車操作', () => {
 describe('訂單表單驗證', () => {
   test('未填寫任何欄位送出顯示錯誤', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('送出訂單 ✉️'));
+    fireEvent.click(screen.getByText('送出訂單'));
     // 應該顯示錯誤訊息
     expect(screen.getByText('請至少選擇一項商品')).toBeInTheDocument();
     expect(screen.getByText('請填寫有效 Email')).toBeInTheDocument();
@@ -283,7 +285,7 @@ describe('訂單表單驗證', () => {
 
   test('必填欄位未填顯示必填提示', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('送出訂單 ✉️'));
+    fireEvent.click(screen.getByText('送出訂單'));
     const requiredErrors = screen.getAllByText('必填');
     expect(requiredErrors.length).toBeGreaterThanOrEqual(4); // 姓名、手機、關係、收件人*3
   });
@@ -304,7 +306,7 @@ describe('已結單狀態', () => {
     const closedSettings = { ...mockSettings, isOpen: false };
     localStorageData.settings = JSON.stringify(closedSettings);
     render(<App />);
-    const myOrderBtn = screen.getByText('🔍 查詢/修改訂單');
+    const myOrderBtn = screen.getByText('查訂單');
     // 按鈕應有 opacity 降低的效果（disabled 狀態）
     expect(myOrderBtn.style.opacity).toBe('0.4');
   });
@@ -316,14 +318,14 @@ describe('已結單狀態', () => {
 describe('查詢訂單', () => {
   test('顯示 Email 輸入欄位和查詢按鈕', () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
     expect(screen.getByPlaceholderText('your@email.com')).toBeInTheDocument();
     expect(screen.getByText('查詢訂單')).toBeInTheDocument();
   });
 
   test('輸入 Email 查詢後顯示訂單', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
 
     const emailInput = screen.getByPlaceholderText('your@email.com');
     fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
@@ -336,7 +338,7 @@ describe('查詢訂單', () => {
 
   test('查無訂單顯示提示', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('🔍 查詢/修改訂單'));
+    fireEvent.click(screen.getByText('查訂單'));
 
     const emailInput = screen.getByPlaceholderText('your@email.com');
     fireEvent.change(emailInput, { target: { value: 'notfound@example.com' } });
@@ -354,7 +356,7 @@ describe('查詢訂單', () => {
 describe('管理員登入', () => {
   test('顯示密碼欄位和登入按鈕', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
     });
@@ -363,7 +365,7 @@ describe('管理員登入', () => {
 
   test('密碼正確可以登入', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
@@ -379,7 +381,7 @@ describe('管理員登入', () => {
 
   test('密碼錯誤顯示錯誤提示', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
@@ -395,7 +397,7 @@ describe('管理員登入', () => {
 
   test('空密碼不送出', async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByText('登入')).toBeInTheDocument();
     });
@@ -413,7 +415,7 @@ describe('管理員登入', () => {
 describe('管理後台分頁', () => {
   const loginAdmin = async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
     });
@@ -476,7 +478,7 @@ describe('管理後台分頁', () => {
 describe('訂單管理', () => {
   const loginAndGoToOrders = async () => {
     render(<App />);
-    fireEvent.click(screen.getByText('⚙️ 後台'));
+    fireEvent.click(screen.getByLabelText('後台'));
     await waitFor(() => {
       expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
     });
@@ -635,7 +637,8 @@ describe('Email 歷史資料帶入', () => {
 describe('產品連結', () => {
   test('產品名稱有外部連結', () => {
     render(<App />);
-    const link = screen.getByRole('link', { name: /德國頂級魚油 🔗/ });
+    // 🔗 已改為 aria-hidden 的線性圖示，無障礙名稱只剩商品名
+    const link = screen.getByRole('link', { name: '德國頂級魚油' });
     expect(link).toHaveAttribute('href', 'https://example.com/p1');
     expect(link).toHaveAttribute('target', '_blank');
   });
@@ -663,13 +666,97 @@ describe('訂單送出', () => {
     });
 
     // 3. 送出（verifySaved 需要等待 2 秒 delay）
-    fireEvent.click(screen.getByText('送出訂單 ✉️'));
+    fireEvent.click(screen.getByText('送出訂單'));
 
     await waitFor(() => {
-      expect(screen.getByText('🎉')).toBeInTheDocument();
+      expect(screen.getByText('訂單已送出')).toBeInTheDocument();
     }, { timeout: 15000 });
-    expect(screen.getByText('訂單已送出！')).toBeInTheDocument();
+    expect(screen.getByText('完成')).toBeInTheDocument();
     expect(screen.getByText(/確認信已寄至/)).toBeInTheDocument();
-    expect(screen.getByText(/請確認收到確認信，才算訂購成功/)).toBeInTheDocument();
+    expect(screen.getByText(/收到確認信才算訂購成功/)).toBeInTheDocument();
   }, 20000);
+});
+
+
+// ── 20. 後台讀取失敗狀態 ────────────────────────────────────────────────────
+
+describe('後台讀取失敗', () => {
+  test('讀取失敗顯示錯誤狀態，而非誤報「本月尚無訂單」', async () => {
+    const baseFetch = global.fetch as jest.Mock;
+    global.fetch = jest.fn((url: any, opts: any) => {
+      if (typeof url === 'string' && url.includes('action=get&key=orders_')) {
+        return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) });
+      }
+      return baseFetch(url, opts);
+    }) as jest.Mock;
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('後台'));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: 'admin123' } });
+    fireEvent.click(screen.getByText('登入'));
+
+    await waitFor(() => {
+      expect(screen.getByText('讀取失敗')).toBeInTheDocument();
+    }, { timeout: 5000 });
+    // 關鍵：絕不能把讀取失敗顯示成「沒有訂單」
+    expect(screen.queryByText('本月尚無訂單')).not.toBeInTheDocument();
+  }, 15000);
+});
+
+
+// ── 21. 後台寫入不得覆蓋期間新進的訂單 ──────────────────────────────────────
+
+describe('後台寫入保護', () => {
+  test('按「已處理」時，分頁掛載後才進來的訂單必須保留', async () => {
+    const KEY = 'orders_2026_03';
+    // 後台載入時只看得到 1 筆
+    let remoteOrders: Record<string, any> = { ...mockOrders };
+
+    const baseFetch = global.fetch as jest.Mock;
+    global.fetch = jest.fn((url: any, opts: any) => {
+      if (typeof url === 'string' && url.includes(`action=get&key=${KEY}`)) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(remoteOrders) }) });
+      }
+      return baseFetch(url, opts);
+    }) as jest.Mock;
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('後台'));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: 'admin123' } });
+    fireEvent.click(screen.getByText('登入'));
+    await waitFor(() => {
+      expect(screen.getByText('測試用戶')).toBeInTheDocument();
+    });
+
+    // 後台已經載入後，前台有新客人下單 —— 這筆不在後台的 state 裡
+    remoteOrders = {
+      ...remoteOrders,
+      'late@example.com': {
+        ordererName: '後來的客人', email: 'late@example.com', phone: '0911222333',
+        relation: '朋友', recipientName: '後來的客人', recipientAddress: '台中市',
+        recipientPhone: '0911222333', cart: { p1: 1 }, total: 700,
+        status: 'pending', createdAt: '2026/3/2 09:00:00', updatedAt: null,
+      },
+    };
+
+    // 「✅ 已處理」同時是統計卡標籤與按鈕，要指定 button
+    fireEvent.click(screen.getByRole('button', { name: '✅ 已處理' }));
+
+    await waitFor(() => {
+      expect(savedData[KEY]).toBeTruthy();
+    }, { timeout: 5000 });
+
+    const written = JSON.parse(savedData[KEY]);
+    // 目標那筆確實被標記為已處理
+    expect(written['test@example.com'].status).toBe('handled');
+    // 關鍵：期間新進的訂單沒有被覆蓋掉
+    expect(written['late@example.com']).toBeTruthy();
+    expect(written['late@example.com'].ordererName).toBe('後來的客人');
+  }, 15000);
 });

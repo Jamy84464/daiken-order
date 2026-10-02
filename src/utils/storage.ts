@@ -65,6 +65,35 @@ export async function loadFromGAS(key: string): Promise<any> {
   return null;
 }
 
+/**
+ * 給後台讀取用：把「真的沒資料」和「讀取失敗」分開回報。
+ *
+ * load() 會吞掉錯誤並回退 localStorage，失敗時回傳 null，所以後台分頁
+ * 無法分辨「本月尚無訂單」和「讀不到」—— GAS 掛掉時會顯示成「尚無訂單」。
+ *
+ * 這是新增的函式，不改動 load() 與 loadFromGAS() 的既有行為，
+ * 因此送出訂單的流程完全不受影響。
+ */
+export type LoadResult = { ok: true; data: any | null } | { ok: false; error: string };
+
+export async function loadStrict(key: string, sheet?: string): Promise<LoadResult> {
+  let url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
+  if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { ok: false, error: `伺服器回應 ${res.status}` };
+    const json = await res.json();
+    if (!json.success) return { ok: false, error: json.error || "伺服器回報讀取失敗" };
+    // success 為 true 但沒有 value：GAS 明確告訴我們這個 key 沒有資料
+    if (!json.value) return { ok: true, data: null };
+    const parsed = JSON.parse(json.value);
+    if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
+    return { ok: true, data: parsed };
+  } catch (e: any) {
+    return { ok: false, error: e?.name === "SyntaxError" ? "資料格式錯誤" : "無法連線至伺服器" };
+  }
+}
+
 export async function verifySaved(key: string, identifier: string, expectedV: number, retries = 2, delay = 2000): Promise<boolean> {
   for (let i = 0; i <= retries; i++) {
     await new Promise(r => setTimeout(r, delay));
@@ -138,21 +167,44 @@ export async function createBackup(label: string): Promise<BackupMeta> {
   _skipVerify = true;
   _cancelAllPendingVerify();
   try {
-    const settingsData = await load("settings");
-    const catsData = await load("cats");
-    const customersData = await load("customers");
-    const historyData: HistoryEntry[] = (await load("history")) || [];
+    // 先把要備份的資料全部讀齊再開始寫。
+    // 原本是邊讀邊寫、而且沒有 null 檢查：任何一項讀取失敗就會把 null
+    // 寫進備份表，等於在備份的當下摧毀上一份還能用的備份。
+    // 結單會自動呼叫這裡，風險特別高。
+    const [settingsR, catsR, customersR, historyR] = await Promise.all([
+      loadStrict("settings"), loadStrict("cats"), loadStrict("customers"), loadStrict("history"),
+    ]);
+    const failed = [
+      !settingsR.ok && "settings", !catsR.ok && "cats",
+      !customersR.ok && "customers", !historyR.ok && "history",
+    ].filter(Boolean);
+    if (failed.length) {
+      throw new Error(`讀取失敗（${failed.join("、")}），為保護既有備份已中止`);
+    }
+
+    const settingsData = (settingsR as { ok: true; data: any }).data;
+    const catsData = (catsR as { ok: true; data: any }).data;
+    const customersData = (customersR as { ok: true; data: any }).data;
+    const historyRaw = (historyR as { ok: true; data: any }).data;
+    const historyData: HistoryEntry[] = Array.isArray(historyRaw) ? historyRaw : [];
+
     const oKeys: string[] = [];
     if (settingsData) oKeys.push(orderKey(settingsData.year, settingsData.month));
     historyData.forEach((h: HistoryEntry) => { if (h.key) oKeys.push(`orders_${h.key}`); });
     const uniqueKeys = Array.from(new Set(oKeys));
-    const savedOrderKeys: string[] = [];
+
+    // 訂單同樣先全部讀齊；任何一個月讀不到就中止，不要寫出殘缺的備份
+    const orderData: Record<string, any> = {};
     for (const k of uniqueKeys) {
-      const d = await load(k);
-      if (d && Object.keys(dataEntries(d)).length > 0) {
-        await bkSave(k, d);
-        savedOrderKeys.push(k);
-      }
+      const r = await loadStrict(k);
+      if (!r.ok) throw new Error(`讀取 ${k} 失敗（${r.error}），為保護既有備份已中止`);
+      if (r.data && Object.keys(dataEntries(r.data)).length > 0) orderData[k] = r.data;
+    }
+
+    const savedOrderKeys: string[] = [];
+    for (const [k, d] of Object.entries(orderData)) {
+      await bkSave(k, d);
+      savedOrderKeys.push(k);
     }
     await bkSave("settings", settingsData);
     await bkSave("cats", catsData);

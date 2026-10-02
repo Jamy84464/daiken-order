@@ -1,6 +1,6 @@
 import type { BankInfo, Category } from "./types";
 
-export const VERSION = "v3.1.4";
+export const VERSION = "v3.1.7";
 export const BASE_URL = "https://www.daikenshop.com/allgoods.php";
 export const DEFAULT_BULLETIN = "每月月底結單，填寫完成後送出，我會與您聯繫確認付款方式 🙏";
 export const DEFAULT_BANK: BankInfo = { bankName: "玉山銀行", bankCode: "808", account: "0989979013999", accountName: "林志銘" };
@@ -13,7 +13,38 @@ export const C = {
   green: "#2d6a4f", gl: "#40916c", gp: "#d8f3dc", gold: "#b7791f",
   cream: "#faf7f2", text: "#1a1a1a", muted: "#6b7280", border: "#e5e0d8",
   red: "#c0392b", white: "#fff",
+  // 深色版本：承載白字時達 WCAG AA（gold 3.6:1 / red 5.4:1 → 6.2:1 / 6.4:1）
+  goldOn: "#8a5a14", redOn: "#a8301f",
+  // 卡片用：單層細邊 + 柔和底，取代「1.5px 邊框 + 陰影」的雙重分層
+  hairline: "rgba(26,26,26,.055)", surface: "#f7f5f1", sub: "#5c6370",
 };
+
+// 字級：7 階，取代原本散落的 30 種
+export const T = {
+  xs: "0.75rem",    // 12 — 標註、版本號
+  sm: "0.8125rem",  // 13 — 次要資訊
+  base: "0.875rem", // 14 — 內文、按鈕
+  md: "1rem",       // 16 — 小標
+  lg: "1.25rem",    // 20 — 標題
+  xl: "1.5rem",     // 24 — 大標
+  xxl: "2rem",      // 32 — 彈窗主標
+} as const;
+
+// 間距：4px 倍數，取代原本的 23 種
+export const S = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32, 7: 48 } as const;
+
+// 圓角：3 階 + 膠囊，取代原本的 13 種
+export const R = { sm: 8, md: 12, lg: 16, full: 999 } as const;
+
+// 可點區域最小高度（行動裝置觸控門檻）
+export const TAP = 44;
+
+// 陰影：單層，依高度分 3 級
+export const E = {
+  1: "0 1px 3px rgba(26,26,26,.06)",
+  2: "0 2px 10px rgba(26,26,26,.08)",
+  3: "0 8px 32px rgba(26,26,26,.14)",
+} as const;
 
 export const globalCSS = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -33,6 +64,17 @@ export const globalCSS = `
   @media screen and (max-width:768px){
     input,select,textarea{font-size:16px!important}
   }
+
+  /* 鍵盤焦點：原本 inp() 設了 outline:none 又靠 inline JS 改邊框色，
+     鍵盤使用者幾乎看不到焦點。改用 :focus-visible，滑鼠點擊時不會出現。 */
+  :focus-visible{outline:2px solid ${C.green};outline-offset:2px;border-radius:3px}
+  input:focus-visible,select:focus-visible,textarea:focus-visible{
+    outline:none;border-color:${C.green};box-shadow:0 0 0 3px rgba(45,106,79,.16)
+  }
+  button:focus:not(:focus-visible),a:focus:not(:focus-visible){outline:none}
+
+  /* 數量輸入框在 iOS 不要跳出小鍵盤以外的東西 */
+  input[type=number]{appearance:textfield}
 `;
 
 const D = "https://www.daikenshop.com/product.php?code=";

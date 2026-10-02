@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { C, GAS_URL, WRITE_TOKEN } from "../../constants";
 import { flatProducts, orderKey, nowStr, dataEntries } from "../../utils/helpers";
-import { load, save, createBackup } from "../../utils/storage";
+import { save, createBackup, loadStrict } from "../../utils/storage";
+import { showToast } from "../../utils/toast";
 import { Btn } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
+import { LoadError } from "./LoadState";
 import type { Settings, Category, Order } from "../../types";
 
 interface CloseoutTabProps {
@@ -14,27 +16,53 @@ interface CloseoutTabProps {
 
 export function CloseoutTab({ settings, setSettings, cats }: CloseoutTabProps) {
   const [orders, setOrders] = useState<Record<string, Order> | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [done, setDone] = useState(false);
   const fp = useMemo(() => flatProducts(cats), [cats]);
 
-  useEffect(() => {
-    const key = orderKey(settings.year, settings.month);
-    load(key).then(o => setOrders(o || {}));
+  // 結單會把這份訂單數與金額寫進歷史紀錄，讀取失敗時絕不能當成「零筆」結單
+  const fetchOrders = useCallback(async () => {
+    setReloading(true);
+    const r = await loadStrict(orderKey(settings.year, settings.month));
+    if (r.ok) { setOrders(r.data || {}); setLoadErr(null); }
+    else { setLoadErr(r.error); setOrders(null); }
+    setReloading(false);
   }, [settings]);
 
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
   const doCloseout = async () => {
+    setConfirm(false);
+    // 結單會把訂單筆數與金額定格寫進歷史，所以先確認讀得到最新訂單。
+    // 原本用掛載當下的 orders state，讀取失敗時會把該月記成 0 筆 / NT$0。
+    const fresh = await loadStrict(orderKey(settings.year, settings.month));
+    if (!fresh.ok) {
+      showToast(`讀取訂單失敗（${fresh.error}），未執行結單，請稍後再試。`);
+      return;
+    }
+    const list = Object.values(dataEntries(fresh.data || {})) as Order[];
+
+    // 歷史紀錄：讀不到就中止，不能用空陣列推一筆上去覆蓋整份歷史
+    const hr = await loadStrict("history");
+    if (!hr.ok) {
+      showToast(`讀取歷史紀錄失敗（${hr.error}），未執行結單，請稍後再試。`);
+      return;
+    }
+    const h = Array.isArray(hr.data) ? hr.data : [];
+
     const s = { ...settings, isOpen: false };
     await save("settings", s); setSettings(s);
-    const h = (await load("history")) || [];
+
     const monthKey = `${settings.year}_${String(settings.month).padStart(2, "0")}`;
     if (!h.find((x: any) => x.key === monthKey)) {
-      const list = Object.values(dataEntries(orders || {})) as Order[];
-      h.push({ key: monthKey, year: settings.year, month: settings.month, closedAt: nowStr(), orderCount: list.length, totalAmt: list.reduce((s: number, o) => s + o.total, 0) });
+      h.push({ key: monthKey, year: settings.year, month: settings.month, closedAt: nowStr(), orderCount: list.length, totalAmt: list.reduce((acc: number, o) => acc + o.total, 0) });
       await save("history", h);
     }
+    setOrders(fresh.data || {});
     try { await createBackup(`結單自動備份 ${settings.year}年${settings.month}月`); } catch (e) { console.warn("auto backup on closeout:", e); }
-    setConfirm(false); setDone(true);
+    setDone(true);
   };
 
   const genCloseoutRows = () => {
@@ -77,6 +105,7 @@ export function CloseoutTab({ settings, setSettings, cats }: CloseoutTabProps) {
     setExporting(false);
   };
 
+  if (loadErr) return <LoadError message={loadErr} onRetry={fetchOrders} busy={reloading} />;
   if (!orders) return <div style={{ color: C.muted, padding: 20 }}>載入中…</div>;
   const list = Object.values(dataEntries(orders)) as Order[];
 

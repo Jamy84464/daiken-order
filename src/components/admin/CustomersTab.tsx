@@ -1,31 +1,62 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { C } from "../../constants";
 import { dataEntries } from "../../utils/helpers";
-import { load, save } from "../../utils/storage";
+import { save, loadStrict } from "../../utils/storage";
 import { showToast } from "../../utils/toast";
 import { TextInput } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
+import { LoadError } from "./LoadState";
 import type { Customer } from "../../types";
 
 export function CustomersTab() {
   const [customers, setCustomers] = useState<Record<string, Customer> | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busyDelete, setBusyDelete] = useState(false);
-  useEffect(() => { load("customers").then(c => setCustomers(c || {})); }, []);
+
+  const fetchCustomers = useCallback(async () => {
+    setReloading(true);
+    const r = await loadStrict("customers");
+    if (r.ok) { setCustomers(r.data || {}); setLoadErr(null); }
+    else { setLoadErr(r.error); setCustomers(null); }
+    setReloading(false);
+  }, []);
+
+  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   const deleteCustomer = async (email: string) => {
-    if (!customers) return;
     setBusyDelete(true);
-    const updated = { ...customers };
+    // 寫入前重新讀：原本拿掛載當下的 state 整份覆蓋，
+    // 期間由前台新註冊的訂購人會被一併抹掉。
+    const r = await loadStrict("customers");
+    if (!r.ok) {
+      showToast(`讀取失敗（${r.error}），未刪除任何資料，請稍後再試。`);
+      setBusyDelete(false);
+      setConfirmDelete(null);
+      return;
+    }
+    const fresh = (r.data || {}) as Record<string, Customer>;
+    const known = customers ? Object.keys(dataEntries(customers)).length : 0;
+    const before = Object.keys(dataEntries(fresh)).length;
+    if (!fresh[email]) {
+      showToast("這位訂購人在雲端已不存在，畫面已更新。");
+      setCustomers(fresh);
+      setBusyDelete(false);
+      setConfirmDelete(null);
+      return;
+    }
+    const updated = { ...fresh };
     delete updated[email];
     await save("customers", updated);
     setCustomers(updated);
     setConfirmDelete(null);
     setBusyDelete(false);
-    showToast("已刪除", "success");
+    showToast(before > known ? `已刪除；期間新增的 ${before - known} 位訂購人已保留。` : "已刪除", "success");
   };
 
+  if (loadErr) return <LoadError message={loadErr} onRetry={fetchCustomers} busy={reloading} />;
   if (!customers) return <div style={{ color: C.muted, padding: 20 }}>載入中…</div>;
   const list = Object.values(dataEntries(customers)).filter((c: any) => !search || (c.name + c.email + c.phone).includes(search)) as Customer[];
 

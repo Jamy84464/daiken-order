@@ -1,11 +1,12 @@
 import { useState, useRef, useMemo } from "react";
-import { C } from "../constants";
+import { C, T, S, R, E, TAP } from "../constants";
 import { isValidEmail, flatProducts, orderKey, nowStr } from "../utils/helpers";
 import { load, save, loadFromGAS, verifySaved } from "../utils/storage";
 import { requestSendEmail, genConfirmEmail } from "../utils/email";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Btn, Field, TextInput, SelInput } from "./ui";
+import { Icon } from "./Icon";
 import { ProductCard } from "./ProductCard";
 import type { Settings, Category, Order, Cart } from "../types";
 
@@ -28,6 +29,8 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
   const recipientLinked = useRef(true);
   const isMobile = useIsMobile();
   const cartRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+  const summaryRef = useRef<HTMLDivElement>(null);
 
   const fp = useMemo(() => flatProducts(cats), [cats]);
   const cartItems = Object.entries(cart).filter(([, q]) => q > 0);
@@ -76,8 +79,19 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
     return Object.keys(e).length === 0;
   };
 
+  // 驗證失敗時捲到第一個有問題的欄位。
+  // 手機版表單在商品列表下方，不捲動的話按了送出畫面毫無反應，會以為網站壞了。
+  const scrollToFirstError = () => {
+    requestAnimationFrame(() => {
+      const el = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+      const target = el || summaryRef.current;
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (el) el.focus({ preventScroll: true });
+    });
+  };
+
   const submit = async () => {
-    if (!validate()) return;
+    if (!validate()) { scrollToFirstError(); return; }
     setSubmitting(true);
     try {
       const key = orderKey(settings.year, settings.month);
@@ -147,35 +161,52 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 330px", gap: isMobile ? 16 : 24, alignItems: "start" }}>
-      {/* Mobile: 浮動購物車摘要列 */}
+      {/* Mobile: 浮動購物車摘要列。
+          paddingBottom 加上 safe-area-inset，避免被 iPhone 的手勢橫條蓋住。 */}
       {isMobile && cartItems.length > 0 && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, background: C.green, color: C.white, padding: "10px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: "0 -3px 16px rgba(0,0,0,.2)" }}>
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200,
+          background: C.green, color: C.white,
+          padding: `${S[3]}px ${S[4]}px calc(${S[3]}px + env(safe-area-inset-bottom, 0px))`,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          boxShadow: "0 -4px 20px rgba(0,0,0,.18)",
+        }}>
           <div>
-            <span style={{ fontSize: "0.82rem" }}>{cartItems.length} 種商品</span>
-            <span className="serif" style={{ fontSize: "1.15rem", fontWeight: 700, marginLeft: 10 }}>NT${total.toLocaleString()}</span>
+            <div style={{ fontSize: T.xs, color: "#bcdcc9", letterSpacing: ".04em" }}>{cartItems.length} 種商品</div>
+            <div className="serif" style={{ fontSize: T.lg, fontWeight: 700, marginTop: 1 }}>NT${total.toLocaleString()}</div>
           </div>
           <button onClick={() => cartRef.current?.scrollIntoView({ behavior: "smooth" })}
-            style={{ background: "rgba(255,255,255,.2)", color: C.white, border: "1px solid rgba(255,255,255,.4)", borderRadius: 8, padding: "7px 14px", fontSize: "0.82rem", cursor: "pointer", fontFamily: "'Noto Sans TC',sans-serif", fontWeight: 600 }}>
-            送出訂單 ▼
+            style={{
+              display: "flex", alignItems: "center", gap: S[2], height: TAP, padding: `0 ${S[5]}px`,
+              background: C.white, color: C.green, border: "none", borderRadius: R.md,
+              fontSize: T.base, cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+            }}>
+            前往結帳
+            <Icon name="arrowRight" size={16} strokeWidth={2.2} />
           </button>
         </div>
       )}
       {/* Products */}
       <div>
-        {errors.cart && <div style={{ background: "#fff5f5", border: `1px solid ${C.red}`, borderRadius: 8, padding: "8px 14px", fontSize: "0.82rem", color: C.red, marginBottom: 14 }}>{errors.cart}</div>}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: S[2], marginBottom: S[5] }}>
           {[{ key: "all", label: "全部" }, ...cats.map(c => ({ key: c.key, label: c.label }))].map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
-              background: tab === t.key ? C.green : C.white, color: tab === t.key ? C.white : C.muted,
-              border: `1.5px solid ${tab === t.key ? C.green : C.border}`, borderRadius: 20,
-              padding: "5px 12px", fontSize: "0.78rem", cursor: "pointer", transition: "all .15s",
+              height: 36, padding: `0 ${S[4]}px`,
+              background: tab === t.key ? C.green : C.white,
+              color: tab === t.key ? C.white : "#4a5560",
+              border: tab === t.key ? "none" : `1px solid ${C.border}`,
+              borderRadius: R.full, fontSize: T.sm, fontWeight: tab === t.key ? 600 : 400,
+              fontFamily: "inherit", cursor: "pointer", transition: "all .15s",
             }}>{t.label}</button>
           ))}
         </div>
         {shown.map(cat => (
-          <div key={cat.key} style={{ marginBottom: 26 }}>
-            <div className="serif" style={{ fontSize: "0.93rem", fontWeight: 600, color: C.green, marginBottom: 10, paddingBottom: 7, borderBottom: `2px solid ${C.gp}` }}>{cat.label}</div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(auto-fill,minmax(195px,1fr))", gap: isMobile ? 8 : 10 }}>
+          <div key={cat.key} style={{ marginBottom: S[6] }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: S[3] }}>
+              <h2 className="serif" style={{ margin: 0, fontSize: T.md, fontWeight: 700, color: C.text, letterSpacing: ".02em" }}>{cat.label}</h2>
+              <span style={{ fontSize: T.xs, color: "#78808c" }}>{cat.products.length} 項商品</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fill,minmax(195px,1fr))", gap: S[3] }}>
               {cat.products.map(p => (
                 <ProductCard key={p.id} product={p} quantity={cart[p.id] || 0} onQuantityChange={q => setQ(p.id, q)} isMobile={isMobile} />
               ))}
@@ -185,73 +216,98 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
       </div>
 
       {/* Sidebar: Cart + Form */}
-      <div ref={cartRef} style={{ position: isMobile ? "static" : "sticky", top: 72, display: "flex", flexDirection: "column", gap: 14, paddingBottom: isMobile && cartItems.length > 0 ? 60 : 0, ...(!isMobile && { maxHeight: "calc(100vh - 88px)", overflow: "hidden" }) }}>
-        <div style={{ flexShrink: 0, background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 16, overflow: "hidden", boxShadow: "0 3px 18px rgba(0,0,0,.06)" }}>
-          <div style={{ background: C.green, color: C.white, padding: "13px 17px", fontWeight: 600, fontSize: "0.93rem" }}>
-            🛒 購物車 {cartItems.length > 0 && <span style={{ background: "rgba(255,255,255,.2)", borderRadius: 9, padding: "2px 8px", fontSize: "0.75rem", marginLeft: 6 }}>{cartItems.length} 種</span>}
+      <div ref={cartRef} style={{ position: isMobile ? "static" : "sticky", top: 72, display: "flex", flexDirection: "column", gap: S[4], paddingBottom: isMobile && cartItems.length > 0 ? 80 : 0, ...(!isMobile && { maxHeight: "calc(100vh - 88px)", overflow: "hidden" }) }}>
+        <div style={{ flexShrink: 0, background: C.white, borderRadius: R.lg, overflow: "hidden", boxShadow: `0 0 0 1px ${C.hairline}, ${E[2]}` }}>
+          <div style={{ background: C.green, color: C.white, padding: `${S[3]}px ${S[4]}px`, display: "flex", alignItems: "center", gap: S[2], fontWeight: 600, fontSize: T.base }}>
+            <Icon name="cart" size={17} />
+            購物車
+            {cartItems.length > 0 && <span style={{ background: "rgba(255,255,255,.22)", borderRadius: R.full, padding: `2px ${S[2]}px`, fontSize: T.xs, marginLeft: "auto" }}>{cartItems.length} 種</span>}
           </div>
-          <div style={{ padding: "10px 16px", maxHeight: 180, overflowY: "auto" }}>
+          <div style={{ padding: `${S[2]}px ${S[4]}px`, maxHeight: 200, overflowY: "auto" }}>
             {cartItems.length === 0
-              ? <div style={{ textAlign: "center", color: C.muted, fontSize: "0.82rem", padding: "18px 0", lineHeight: 2 }}>尚未加入商品</div>
+              ? <div style={{ textAlign: "center", color: C.muted, fontSize: T.sm, padding: `${S[5]}px 0`, lineHeight: 1.9 }}>尚未加入商品</div>
               : cartItems.map(([id, q]) => { const p = fp[id]; return p && (
-                  <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: `1px solid ${C.border}`, gap: 8, fontSize: "0.8rem" }}>
-                    <span style={{ flex: 1, lineHeight: 1.4 }}>{p.name}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <button onClick={() => setQ(id, q - 1)} style={{ width: 20, height: 20, border: `1px solid ${C.border}`, borderRadius: 4, background: C.cream, cursor: "pointer", color: C.green, fontWeight: 700, fontSize: "0.85rem" }}>−</button>
-                      <span style={{ minWidth: 18, textAlign: "center", fontWeight: 600 }}>{q}</span>
-                      <button onClick={() => setQ(id, q + 1)} style={{ width: 20, height: 20, border: `1px solid ${C.border}`, borderRadius: 4, background: C.cream, cursor: "pointer", color: C.green, fontWeight: 700, fontSize: "0.85rem" }}>＋</button>
+                  <div key={id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: `${S[2]}px 0`, borderBottom: `1px solid ${C.hairline}`, gap: S[2], fontSize: T.sm }}>
+                    <span style={{ flex: 1, minWidth: 0, lineHeight: 1.45, wordBreak: "break-word" }}>{p.name}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                      <button onClick={() => setQ(id, q - 1)} aria-label={`減少 ${p.name} 數量`} style={{ width: 36, height: 36, border: `1px solid ${C.border}`, borderRadius: R.sm, background: C.surface, cursor: "pointer", color: C.green, fontWeight: 700, fontSize: T.base, fontFamily: "inherit" }}>−</button>
+                      <span style={{ minWidth: 26, textAlign: "center", fontWeight: 600 }}>{q}</span>
+                      <button onClick={() => setQ(id, q + 1)} aria-label={`增加 ${p.name} 數量`} style={{ width: 36, height: 36, border: `1px solid ${C.border}`, borderRadius: R.sm, background: C.surface, cursor: "pointer", color: C.green, fontWeight: 700, fontSize: T.base, fontFamily: "inherit" }}>＋</button>
                     </div>
-                    <span style={{ fontWeight: 600, color: C.green, whiteSpace: "nowrap" }}>NT${(p.price * q).toLocaleString()}</span>
+                    <span className="serif" style={{ fontWeight: 700, color: C.green, whiteSpace: "nowrap", flexShrink: 0 }}>NT${(p.price * q).toLocaleString()}</span>
                   </div>
                 ); })
             }
           </div>
-          <div style={{ padding: "11px 17px", background: C.cream, borderTop: `2px solid ${C.gp}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.83rem", color: C.muted }}>合計</span>
-            <span className="serif" style={{ fontSize: "1.35rem", fontWeight: 700, color: C.green }}>NT${total.toLocaleString()}</span>
+          <div style={{ padding: `${S[3]}px ${S[4]}px`, background: C.surface, borderTop: `1px solid ${C.hairline}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: T.sm, color: C.sub }}>合計</span>
+            <span className="serif" style={{ fontSize: T.xl, fontWeight: 700, color: C.green }}>NT${total.toLocaleString()}</span>
           </div>
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 16, padding: 17 }}>
-          <div className="serif" style={{ fontSize: "0.9rem", fontWeight: 700, marginBottom: 14, color: C.text, paddingBottom: 8, borderBottom: `2px solid ${C.gp}` }}>📋 訂購人資訊</div>
+        <div ref={formRef} style={{ flex: 1, minHeight: 0, overflowY: "auto", background: C.white, borderRadius: R.lg, padding: S[5], boxShadow: `0 0 0 1px ${C.hairline}, ${E[1]}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: S[2], marginBottom: S[4] }}>
+            <Icon name="user" size={16} color={C.green} />
+            <h2 className="serif" style={{ margin: 0, fontSize: T.md, fontWeight: 700, color: C.text }}>訂購人資訊</h2>
+          </div>
 
           <Field label="Email" required error={errors.email}>
-            <TextInput value={form.email} onChange={v => { setF("email", v); setEmailLookupDone(false); setEmailChecked(false); setErrors(p => ({ ...p, email: null, emailConfirm: null })); }} type="email" placeholder="請先輸入 Email"
+            <TextInput value={form.email} onChange={v => { setF("email", v); setEmailLookupDone(false); setEmailChecked(false); setErrors(p => ({ ...p, email: null, emailConfirm: null })); }}
+              type="email" autoComplete="email" inputMode="email" placeholder="請先輸入 Email"
               onBlur={handleEmailBlur} />
           </Field>
           {lookingUp && (
-            <div style={{ background: "rgba(250,247,242,.85)", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "20px 16px", textAlign: "center", margin: "8px 0" }}>
-              <div style={{ fontSize: "1.1rem", marginBottom: 6 }}>🔍</div>
-              <div style={{ fontSize: "0.82rem", color: C.muted }}>查詢歷史訂購紀錄中，請稍候…</div>
+            <div style={{ background: C.surface, borderRadius: R.md, padding: `${S[5]}px ${S[4]}px`, textAlign: "center", margin: `${S[2]}px 0 ${S[4]}px`, display: "flex", flexDirection: "column", alignItems: "center", gap: S[2] }}>
+              <Icon name="search" size={20} color={C.gl} />
+              <div style={{ fontSize: T.sm, color: C.sub }}>查詢歷史訂購紀錄中，請稍候…</div>
             </div>
           )}
-          {emailChecked && emailLookupDone && <div style={{ background: C.gp, border: `1px solid ${C.gl}`, borderRadius: 7, padding: "7px 11px", fontSize: "0.78rem", color: C.green, marginTop: -8, marginBottom: 10 }}>✅ 找到歷史紀錄，已自動帶入資料</div>}
+          {emailChecked && emailLookupDone && (
+            <div style={{ display: "flex", alignItems: "center", gap: S[2], background: "#edf6f1", borderRadius: R.sm, padding: `${S[2]}px ${S[3]}px`, fontSize: T.sm, color: "#1f5c40", marginTop: -S[2], marginBottom: S[4] }}>
+              <Icon name="check" size={15} strokeWidth={2.4} />
+              找到歷史紀錄，已自動帶入資料
+            </div>
+          )}
           {emailChecked && !emailLookupDone && form.email && isValidEmail(form.email) && (
-            <Field label="再次確認 Email" required error={errors.emailConfirm}>
-              <TextInput value={form.emailConfirm} onChange={v => { setF("emailConfirm", v); setErrors(p => ({ ...p, emailConfirm: null })); }} type="email" placeholder="請再輸入一次 Email 確認" />
+            <Field label="再次確認 Email" required error={errors.emailConfirm} hint="為避免打錯，請再輸入一次">
+              {/* autoComplete 關閉：若讓瀏覽器自動填入，兩欄必然一致，防呆就失效了 */}
+              <TextInput value={form.emailConfirm} onChange={v => { setF("emailConfirm", v); setErrors(p => ({ ...p, emailConfirm: null })); }}
+                type="email" autoComplete="off" inputMode="email" placeholder="請再輸入一次 Email 確認" />
             </Field>
           )}
 
-          <div style={{ position: "relative", ...(lookingUp && { pointerEvents: "none" as const, opacity: 0.35, filter: "blur(1px)" }) }}>
-          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} onChange={v => {
+          <div style={{ position: "relative", ...(lookingUp && { pointerEvents: "none" as const, opacity: 0.35 }) }}>
+          <Field label="姓名" required error={errors.ordererName}><TextInput value={form.ordererName} autoComplete="name" onChange={v => {
             setF("ordererName", v);
             if (recipientLinked.current) setF("recipientName", v);
           }} placeholder="姓名" /></Field>
-          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} onChange={v => {
+          <Field label="手機" required error={errors.phone}><TextInput value={form.phone} type="tel" autoComplete="tel" inputMode="tel" onChange={v => {
             setF("phone", v);
             if (recipientLinked.current) setF("recipientPhone", v);
-          }} type="tel" placeholder="0912-345-678" /></Field>
+          }} placeholder="0912-345-678" /></Field>
           <Field label="與我的關係" required error={errors.relation}>
             <SelInput value={form.relation} onChange={v => setF("relation", v)} options={["109A同學", "109B同學", "109C同學", "EMBA學長姐", "老師", "朋友", "其他"]} />
           </Field>
 
-          <div className="serif" style={{ fontSize: "0.9rem", fontWeight: 700, margin: "14px 0 10px", color: C.text, paddingBottom: 8, borderBottom: `2px solid ${C.gp}` }}>📦 收件人資訊</div>
-          <Field label="收件人姓名" required error={errors.recipientName}><TextInput value={form.recipientName} onChange={v => { recipientLinked.current = false; setF("recipientName", v); }} placeholder="收件人姓名" /></Field>
-          <Field label="收件地址" required error={errors.recipientAddress}><TextInput value={form.recipientAddress} onChange={v => setF("recipientAddress", v)} placeholder="縣市 + 詳細地址" /></Field>
-          <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} onChange={v => { recipientLinked.current = false; setF("recipientPhone", v); }} type="tel" placeholder="0912-345-678" /></Field>
+          <div style={{ display: "flex", alignItems: "center", gap: S[2], margin: `${S[5]}px 0 ${S[4]}px`, paddingTop: S[4], borderTop: `1px solid ${C.hairline}` }}>
+            <Icon name="box" size={16} color={C.green} />
+            <h2 className="serif" style={{ margin: 0, fontSize: T.md, fontWeight: 700, color: C.text }}>收件人資訊</h2>
+          </div>
+          <Field label="收件人姓名" required error={errors.recipientName}><TextInput value={form.recipientName} autoComplete="shipping name" onChange={v => { recipientLinked.current = false; setF("recipientName", v); }} placeholder="收件人姓名" /></Field>
+          <Field label="收件地址" required error={errors.recipientAddress}><TextInput value={form.recipientAddress} autoComplete="shipping street-address" onChange={v => setF("recipientAddress", v)} placeholder="縣市 + 詳細地址" /></Field>
+          <Field label="收件人電話" required error={errors.recipientPhone}><TextInput value={form.recipientPhone} type="tel" autoComplete="shipping tel" inputMode="tel" onChange={v => { recipientLinked.current = false; setF("recipientPhone", v); }} placeholder="0912-345-678" /></Field>
 
-          <Btn onClick={submit} disabled={submitting || lookingUp} full color={C.green} style={{ marginTop: 4, padding: "13px" }}>
-            {submitting ? (submitStatus || "處理中…") : "送出訂單 ✉️"}
+          {/* 錯誤摘要放在按鈕上方：原本「請至少選擇一項商品」顯示在商品欄最上方，
+              手機版按下送出時它在畫面外，使用者會以為按鈕沒反應。 */}
+          {errors.cart && (
+            <div ref={summaryRef} role="alert" style={{ display: "flex", alignItems: "center", gap: S[2], background: "#fdf1ef", borderRadius: R.sm, padding: `${S[3]}px ${S[3]}px`, fontSize: T.sm, color: C.redOn, marginBottom: S[3] }}>
+              <Icon name="alert" size={16} strokeWidth={2.1} />
+              {errors.cart}
+            </div>
+          )}
+
+          <Btn onClick={submit} disabled={submitting || lookingUp} full color={C.green} style={{ marginTop: S[1], minHeight: 52, fontSize: T.md }}>
+            {submitting ? (submitStatus || "處理中…") : <><Icon name="mail" size={17} />送出訂單</>}
           </Btn>
           </div>
         </div>

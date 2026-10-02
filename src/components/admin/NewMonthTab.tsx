@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { C } from "../../constants";
 import { orderKey, dataEntries } from "../../utils/helpers";
-import { load, save } from "../../utils/storage";
+import { save, loadStrict } from "../../utils/storage";
 import { Btn, Field, TextInput, SelInput } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
 import type { Settings } from "../../types";
@@ -23,9 +23,15 @@ export function NewMonthTab({ settings, setSettings }: NewMonthTabProps) {
     setChecking(true);
     setBlockReason("");
     const curKey = orderKey(settings.year, settings.month);
-    const curOrders = (await load(curKey)) || {};
-    const pendingList = Object.values(dataEntries(curOrders)).filter((o: any) => o.status !== "handled");
+    const r = await loadStrict(curKey);
     setChecking(false);
+    // 讀不到就不能放行：原本 load() 失敗會回 {}，未處理訂單數變 0，
+    // 這道「請先結單」的防線等於自動通過。
+    if (!r.ok) {
+      setBlockReason(`無法讀取目前月份的訂單（${r.error}），為避免誤判請稍後再試。`);
+      return;
+    }
+    const pendingList = Object.values(dataEntries(r.data || {})).filter((o: any) => o.status !== "handled");
     if (settings.isOpen && pendingList.length > 0) {
       setBlockReason(`目前 ${settings.year}年${settings.month}月 還有 ${pendingList.length} 筆訂單未處理，請先結單後再開啟新月份。`);
       return;

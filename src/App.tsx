@@ -1,10 +1,11 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { VERSION, C, globalCSS, DEFAULT_BULLETIN, DEFAULT_BANK, GAS_URL, INIT_CATS } from "./constants";
+import { VERSION, C, T, S, R, TAP, globalCSS, DEFAULT_BULLETIN, DEFAULT_BANK, GAS_URL, INIT_CATS } from "./constants";
 import { load, save } from "./utils/storage";
 import { isValidEmail, orderKey, nowStr, dataEntries, flatProducts } from "./utils/helpers";
 import { emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail } from "./utils/email";
 import { _saveVersions, _pendingVerify, loadFromGAS, verifySaved } from "./utils/storage";
 import { Btn } from "./components/ui";
+import { Icon, type IconName } from "./components/Icon";
 import { EmailModal } from "./components/EmailModal";
 import { SyncStatus } from "./components/SyncStatus";
 import { Toast } from "./components/Toast";
@@ -77,54 +78,94 @@ function App() {
       <style>{globalCSS}</style>
       {emailModal && <EmailModal title={emailModal.title} content={emailModal.content} onClose={() => setEmailModal(null)} />}
       {successModal && !emailModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div className="pop" style={{ background: C.white, borderRadius: 18, padding: 30, maxWidth: 420, width: "100%", textAlign: "center" }}>
-            <div style={{ fontSize: "2.8rem", marginBottom: 10 }}>🎉</div>
-            <div className="serif" style={{ fontSize: "1.2rem", fontWeight: 700, color: C.green, marginBottom: 10 }}>訂單已送出！</div>
-            <div style={{ fontSize: "0.85rem", color: C.muted, lineHeight: 2, marginBottom: 14 }}>
-              <strong style={{ color: C.text }}>{successModal.ordererName}</strong> 感謝訂購！<br />
-              合計 <strong style={{ color: C.green }}>NT${successModal.total.toLocaleString()}</strong><br />
-              確認信已寄至 <strong>{successModal.email}</strong>
+        <div role="dialog" aria-modal="true" aria-labelledby="success-title"
+          onClick={e => { if (e.target === e.currentTarget) setSuccessModal(null); }}
+          onKeyDown={e => { if (e.key === "Escape") setSuccessModal(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(26,26,26,.55)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: S[4] }}>
+          <div className="pop" style={{ background: C.white, borderRadius: R.lg, padding: S[6], maxWidth: 420, width: "100%", textAlign: "center", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ width: 52, height: 52, borderRadius: R.full, background: "#e6f1ea", display: "flex", alignItems: "center", justifyContent: "center", margin: `0 auto ${S[4]}px` }}>
+              <Icon name="check" size={26} color={C.green} strokeWidth={2.6} />
             </div>
-            <div style={{background:"#fffbeb",border:"1px solid #f6e05e",borderRadius:10,padding:"10px 14px",fontSize:"0.82rem",color:"#744210",lineHeight:1.8,marginBottom:18,textAlign:"left"}}>
-              ⚠️ 請確認收到確認信，才算訂購成功。<br/>若未收到，請檢查垃圾信件匣或與我聯繫。
+            <h2 id="success-title" className="serif" style={{ margin: 0, fontSize: T.lg, fontWeight: 700, color: C.text }}>訂單已送出</h2>
+            <p style={{ fontSize: T.base, color: C.sub, lineHeight: 1.7, margin: `${S[2]}px 0 ${S[5]}px` }}>
+              {successModal.ordererName}，感謝訂購
+            </p>
+
+            <div style={{ background: C.surface, borderRadius: R.md, padding: `${S[4]}px`, marginBottom: S[4], display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: T.sm, color: C.text, fontWeight: 600 }}>合計</span>
+              <span className="serif" style={{ fontSize: T.lg, fontWeight: 700, color: C.green }}>NT${successModal.total.toLocaleString()}</span>
             </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-              <Btn onClick={() => setSuccessModal(null)} color={C.green}>關閉</Btn>
+
+            <div style={{ display: "flex", gap: S[3], alignItems: "flex-start", background: "#fdf8e9", borderRadius: R.md, padding: `${S[3]}px ${S[4]}px`, marginBottom: S[5], textAlign: "left" }}>
+              <Icon name="alert" size={17} color="#8a6914" strokeWidth={2} style={{ marginTop: 2 }} />
+              <div style={{ fontSize: T.sm, color: "#6b5310", lineHeight: 1.65 }}>
+                確認信已寄至 <strong style={{ color: "#4a3908", wordBreak: "break-all" }}>{successModal.email}</strong>。<br />
+                <strong style={{ color: "#4a3908" }}>收到確認信才算訂購成功</strong>，若未收到請查看垃圾信件匣或與我聯繫。
+              </div>
             </div>
+
+            <Btn onClick={() => setSuccessModal(null)} color={C.green} full style={{ minHeight: 48, fontSize: T.md }}>完成</Btn>
           </div>
         </div>
       )}
 
       <div style={{ minHeight: "100vh", background: C.cream }}>
         <div style={{ background: C.green, color: C.white, position: "sticky", top: 0, zIndex: 100, boxShadow: "0 2px 12px rgba(0,0,0,.18)" }}>
-          <div style={{ maxWidth: 1200, margin: "0 auto", padding: "13px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-            <div onClick={() => setView("shop")} style={{ cursor: "pointer" }}>
-              <div className="serif" style={{ fontSize: "1.1rem", fontWeight: 700, letterSpacing: ".04em" }}>🌿 大研生醫 × 團購專區</div>
-              <div style={{ fontSize: "0.7rem", opacity: .75, letterSpacing: ".08em", marginTop: 2 }}>台大EMBA · 師長 · 好友 專屬 <span style={{ opacity: .6, marginLeft: 6 }}>{VERSION}</span></div>
-            </div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-              {([["shop", "🛒 訂購"], ["myorder", "🔍 查詢/修改訂單"], ["admin", "⚙️ 後台"]] as [string, string][]).map(([v, l]) => {
+          <div style={{ maxWidth: 1200, margin: "0 auto", padding: `${S[3]}px ${S[4]}px`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: S[3], flexWrap: "wrap" }}>
+            <button onClick={() => setView("shop")} aria-label="回到訂購頁"
+              style={{ display: "flex", alignItems: "center", gap: S[2], background: "none", border: "none", padding: 0, cursor: "pointer", color: C.white, textAlign: "left", fontFamily: "inherit" }}>
+              <Icon name="leaf" size={20} color="#a8d5ba" strokeWidth={1.6} />
+              <span>
+                <span className="serif" style={{ display: "block", fontSize: T.md, fontWeight: 700, letterSpacing: ".03em", lineHeight: 1.25 }}>大研生醫 × 團購專區</span>
+                <span style={{ display: "block", fontSize: T.xs, color: "#c7e3d2", letterSpacing: ".06em", marginTop: 3 }}>台大 EMBA · 師長 · 好友專屬 <span style={{ opacity: .7, marginLeft: S[1] }}>{VERSION}</span></span>
+              </span>
+            </button>
+            <nav style={{ display: "flex", gap: S[2], flexWrap: "wrap" }}>
+              {([["shop", "訂購", "cart"], ["myorder", "查訂單", "search"], ["admin", "後台", "settings"]] as [string, string, IconName][]).map(([v, l, ic]) => {
                 const disabled = v === "myorder" && !isOpen;
+                const active = view === v;
+                const iconOnly = v === "admin";
                 return (
-                <button key={v} onClick={() => { if (!disabled) setView(v); }} style={{
-                  background: view === v ? "rgba(255,255,255,.25)" : "rgba(255,255,255,.12)",
-                  color: C.white, border: `1px solid rgba(255,255,255,${view === v ? .4 : .2})`,
-                  borderRadius: 8, padding: "7px 13px", fontSize: "0.8rem", cursor: disabled ? "not-allowed" : "pointer",
-                  fontFamily: "'Noto Sans TC',sans-serif", fontWeight: view === v ? 600 : 400,
-                  opacity: disabled ? .4 : 1,
-                }}>{l}</button>
+                <button key={v} onClick={() => { if (!disabled) setView(v); }} disabled={disabled}
+                  aria-label={iconOnly ? l : undefined} aria-current={active ? "page" : undefined}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: S[2],
+                    height: TAP, minWidth: iconOnly ? TAP : undefined, padding: iconOnly ? 0 : `0 ${S[4]}px`,
+                    background: active ? C.white : "rgba(255,255,255,.14)",
+                    color: active ? C.green : C.white,
+                    border: "none", borderRadius: R.md,
+                    fontSize: T.base, fontWeight: active ? 600 : 400,
+                    fontFamily: "inherit", cursor: disabled ? "not-allowed" : "pointer",
+                    opacity: disabled ? .4 : 1, transition: "background .15s",
+                  }}>
+                  <Icon name={ic} size={17} />
+                  {!iconOnly && l}
+                </button>
               ); })}
-            </div>
+            </nav>
           </div>
         </div>
 
         {view === "shop" && (
-          <div style={{ background: isOpen ? "linear-gradient(135deg,#1b4332,#2d6a4f)" : "linear-gradient(135deg,#7b341e,#c05621)", color: C.white, padding: "12px 20px", textAlign: "center" }}>
-            <div className="serif" style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: ".05em" }}>{isOpen ? "🟢" : "🔴"} {monthLabel}的團購{isOpen ? "" : "已結單"}</div>
-            <div style={{ fontSize: "0.8rem", opacity: .85, marginTop: 6, lineHeight: 1.7 }}>
-              {isOpen ? (settings.bulletin || DEFAULT_BULLETIN)
-              : `歡迎期待下一期！`}
+          <div style={{
+            background: isOpen ? "#f0f7f3" : "#fdf2ec",
+            borderBottom: `1px solid ${isOpen ? "#dfe9e3" : "#f2ddd0"}`,
+            padding: `${S[4]}px ${S[4]}px`,
+          }}>
+            <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "flex-start", gap: S[3] }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: R.full, flexShrink: 0, marginTop: 7,
+                background: isOpen ? "#2d8a5a" : "#c05621",
+                boxShadow: `0 0 0 3px ${isOpen ? "rgba(45,138,90,.18)" : "rgba(192,86,33,.18)"}`,
+              }} />
+              <div>
+                <div className="serif" style={{ fontSize: T.md, fontWeight: 700, color: isOpen ? "#1f5c40" : "#8a3d12", letterSpacing: ".02em" }}>
+                  {monthLabel}{isOpen ? "團購進行中" : "的團購已結單"}
+                </div>
+                <div style={{ fontSize: T.sm, color: isOpen ? "#5a6b62" : "#8a6a55", marginTop: 3, lineHeight: 1.65 }}>
+                  {isOpen ? (settings.bulletin || DEFAULT_BULLETIN) : "歡迎期待下一期！"}
+                </div>
+              </div>
             </div>
           </div>
         )}
