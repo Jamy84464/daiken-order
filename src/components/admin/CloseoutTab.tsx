@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { C, GAS_URL, WRITE_TOKEN } from "../../constants";
 import { flatProducts, orderKey, nowStr, dataEntries } from "../../utils/helpers";
-import { load, save, createBackup } from "../../utils/storage";
+import { load, save, createBackup, loadStrict } from "../../utils/storage";
 import { Btn } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
+import { LoadError } from "./LoadState";
 import type { Settings, Category, Order } from "../../types";
 
 interface CloseoutTabProps {
@@ -14,14 +15,22 @@ interface CloseoutTabProps {
 
 export function CloseoutTab({ settings, setSettings, cats }: CloseoutTabProps) {
   const [orders, setOrders] = useState<Record<string, Order> | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [done, setDone] = useState(false);
   const fp = useMemo(() => flatProducts(cats), [cats]);
 
-  useEffect(() => {
-    const key = orderKey(settings.year, settings.month);
-    load(key).then(o => setOrders(o || {}));
+  // 結單會把這份訂單數與金額寫進歷史紀錄，讀取失敗時絕不能當成「零筆」結單
+  const fetchOrders = useCallback(async () => {
+    setReloading(true);
+    const r = await loadStrict(orderKey(settings.year, settings.month));
+    if (r.ok) { setOrders(r.data || {}); setLoadErr(null); }
+    else { setLoadErr(r.error); setOrders(null); }
+    setReloading(false);
   }, [settings]);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   const doCloseout = async () => {
     const s = { ...settings, isOpen: false };
@@ -77,6 +86,7 @@ export function CloseoutTab({ settings, setSettings, cats }: CloseoutTabProps) {
     setExporting(false);
   };
 
+  if (loadErr) return <LoadError message={loadErr} onRetry={fetchOrders} busy={reloading} />;
   if (!orders) return <div style={{ color: C.muted, padding: 20 }}>載入中…</div>;
   const list = Object.values(dataEntries(orders)) as Order[];
 

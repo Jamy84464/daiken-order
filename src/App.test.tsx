@@ -71,28 +71,28 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
       }
       if (url.includes('action=get&key=settings')) {
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockSettings) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockSettings) }) });
       }
       if (url.includes('action=get&key=customers')) {
         if (savedData['customers']) {
-          return Promise.resolve({ json: () => Promise.resolve({ success: true, value: savedData['customers'] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: savedData['customers'] }) });
         }
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCustomers) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCustomers) }) });
       }
       if (url.includes('action=get&key=orders_')) {
         const match = url.match(/key=(orders_\d+_\d+)/);
         const key = match ? match[1] : null;
         if (key && savedData[key]) {
-          return Promise.resolve({ json: () => Promise.resolve({ success: true, value: savedData[key] }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: savedData[key] }) });
         }
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockOrders) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockOrders) }) });
       }
       if (url.includes('action=getCats')) {
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCats) }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCats) }) });
       }
       if (url.includes('action=verifyAdmin')) {
         const authed = url.includes('pw=admin123');
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, authed }) });
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, authed }) });
       }
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
@@ -673,4 +673,33 @@ describe('訂單送出', () => {
     expect(screen.getByText(/確認信已寄至/)).toBeInTheDocument();
     expect(screen.getByText(/收到確認信才算訂購成功/)).toBeInTheDocument();
   }, 20000);
+});
+
+
+// ── 20. 後台讀取失敗狀態 ────────────────────────────────────────────────────
+
+describe('後台讀取失敗', () => {
+  test('讀取失敗顯示錯誤狀態，而非誤報「本月尚無訂單」', async () => {
+    const baseFetch = global.fetch as jest.Mock;
+    global.fetch = jest.fn((url: any, opts: any) => {
+      if (typeof url === 'string' && url.includes('action=get&key=orders_')) {
+        return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) });
+      }
+      return baseFetch(url, opts);
+    }) as jest.Mock;
+
+    render(<App />);
+    fireEvent.click(screen.getByLabelText('後台'));
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: 'admin123' } });
+    fireEvent.click(screen.getByText('登入'));
+
+    await waitFor(() => {
+      expect(screen.getByText('讀取失敗')).toBeInTheDocument();
+    }, { timeout: 5000 });
+    // 關鍵：絕不能把讀取失敗顯示成「沒有訂單」
+    expect(screen.queryByText('本月尚無訂單')).not.toBeInTheDocument();
+  }, 15000);
 });

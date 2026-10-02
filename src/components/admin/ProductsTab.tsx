@@ -98,11 +98,11 @@ export function ProductsTab({ cats, setCats }: ProductsTabProps) {
                   </span>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                     <button onClick={() => toggleOOS(cat.key, p.id)} disabled={!!isHidden}
-                      style={{ background: isOOS ? C.gl : "#f6ad55", color: C.white, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: "0.72rem", cursor: isHidden ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: isHidden ? 0.4 : 1 }}>
+                      style={{ background: isOOS ? C.green : "#9a5b0d", color: C.white, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: "0.72rem", cursor: isHidden ? "not-allowed" : "pointer", whiteSpace: "nowrap", opacity: isHidden ? 0.4 : 1 }}>
                       {isOOS ? "恢復上架" : "設為缺貨"}
                     </button>
                     <button onClick={() => toggleHidden(cat.key, p.id)}
-                      style={{ background: isHidden ? C.green : "#718096", color: C.white, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: "0.72rem", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      style={{ background: isHidden ? C.green : "#5a6675", color: C.white, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: "0.72rem", cursor: "pointer", whiteSpace: "nowrap" }}>
                       {isHidden ? "重新上架" : "下架"}
                     </button>
                   </div>

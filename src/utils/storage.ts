@@ -65,6 +65,35 @@ export async function loadFromGAS(key: string): Promise<any> {
   return null;
 }
 
+/**
+ * 給後台讀取用：把「真的沒資料」和「讀取失敗」分開回報。
+ *
+ * load() 會吞掉錯誤並回退 localStorage，失敗時回傳 null，所以後台分頁
+ * 無法分辨「本月尚無訂單」和「讀不到」—— GAS 掛掉時會顯示成「尚無訂單」。
+ *
+ * 這是新增的函式，不改動 load() 與 loadFromGAS() 的既有行為，
+ * 因此送出訂單的流程完全不受影響。
+ */
+export type LoadResult = { ok: true; data: any | null } | { ok: false; error: string };
+
+export async function loadStrict(key: string, sheet?: string): Promise<LoadResult> {
+  let url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
+  if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return { ok: false, error: `伺服器回應 ${res.status}` };
+    const json = await res.json();
+    if (!json.success) return { ok: false, error: json.error || "伺服器回報讀取失敗" };
+    // success 為 true 但沒有 value：GAS 明確告訴我們這個 key 沒有資料
+    if (!json.value) return { ok: true, data: null };
+    const parsed = JSON.parse(json.value);
+    if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
+    return { ok: true, data: parsed };
+  } catch (e: any) {
+    return { ok: false, error: e?.name === "SyntaxError" ? "資料格式錯誤" : "無法連線至伺服器" };
+  }
+}
+
 export async function verifySaved(key: string, identifier: string, expectedV: number, retries = 2, delay = 2000): Promise<boolean> {
   for (let i = 0; i <= retries; i++) {
     await new Promise(r => setTimeout(r, delay));

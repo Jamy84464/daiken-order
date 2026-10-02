@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { C } from "../../constants";
 import { flatProducts, dataEntries } from "../../utils/helpers";
-import { load } from "../../utils/storage";
+import { loadStrict } from "../../utils/storage";
+import { LoadError } from "./LoadState";
 import type { Category, HistoryEntry, Order } from "../../types";
 
 interface HistoryTabProps {
@@ -10,33 +11,57 @@ interface HistoryTabProps {
 
 export function HistoryTab({ cats }: HistoryTabProps) {
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [monthOrders, setMonthOrders] = useState<Record<string, Record<string, Order>>>({});
+  const [monthOrders, setMonthOrders] = useState<Record<string, Record<string, Order> | { __error: string }>>({});
   const fp = useMemo(() => flatProducts(cats), [cats]);
-  useEffect(() => { load("history").then(h => setHistory(h || [])); }, []);
+
+  const fetchHistory = useCallback(async () => {
+    setReloading(true);
+    const r = await loadStrict("history");
+    // 歷史紀錄應為陣列；SystemTab 的「清除歷史」曾寫入 {} 導致這裡 .sort 崩潰
+    if (r.ok) { setHistory(Array.isArray(r.data) ? r.data : []); setLoadErr(null); }
+    else { setLoadErr(r.error); setHistory(null); }
+    setReloading(false);
+  }, []);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
   const expand = async (month: string) => {
     if (expanded === month) { setExpanded(null); return; }
     setExpanded(month);
-    const orders = (await load(`orders_${month}`)) || {};
-    setMonthOrders(prev => ({ ...prev, [month]: orders }));
+    const r = await loadStrict(`orders_${month}`);
+    setMonthOrders(prev => ({ ...prev, [month]: r.ok ? (r.data || {}) : { __error: r.error } }));
   };
 
+  if (loadErr) return <LoadError message={loadErr} onRetry={fetchHistory} busy={reloading} />;
   if (!history) return <div style={{ color: C.muted, padding: 20 }}>載入中…</div>;
   if (history.length === 0) return <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>尚無歷史結單紀錄</div>;
 
   return (
     <div>
       <div className="serif" style={{ fontSize: "0.97rem", fontWeight: 700, marginBottom: 14 }}>📚 歷史訂單</div>
-      {history.sort((a, b) => b.closedAt.localeCompare(a.closedAt)).map(h => (
+      {[...history].sort((a, b) => b.closedAt.localeCompare(a.closedAt)).map(h => (
         <div key={h.key} style={{ background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 12, marginBottom: 10, overflow: "hidden" }}>
           <div onClick={() => expand(h.key)} style={{ padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", background: C.cream }}>
             <span className="serif" style={{ fontWeight: 600 }}>{h.year}年{h.month}月｜{h.orderCount}筆訂單｜NT${h.totalAmt.toLocaleString()}</span>
             <span style={{ color: C.muted, fontSize: "0.85rem" }}>{expanded === h.key ? "▲" : "▼"}</span>
           </div>
-          {expanded === h.key && monthOrders[h.key] && (
+          {/* 展開中但資料還沒回來：原本什麼都不顯示，手機上看起來像點了沒反應 */}
+          {expanded === h.key && !monthOrders[h.key] && (
+            <div style={{ padding: "14px 16px", color: C.muted, fontSize: "0.82rem" }}>載入該月訂單中…</div>
+          )}
+          {expanded === h.key && (monthOrders[h.key] as any)?.__error && (
+            <div role="alert" style={{ padding: "14px 16px", color: C.redOn, fontSize: "0.82rem", background: "#fdf1ef" }}>
+              讀取失敗：{(monthOrders[h.key] as any).__error}
+              <button onClick={() => { setMonthOrders(p => { const n = { ...p }; delete n[h.key]; return n; }); setExpanded(null); }}
+                style={{ background: "none", border: "none", color: C.redOn, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit", fontSize: "inherit", padding: 0 }}>重試</button>
+            </div>
+          )}
+          {expanded === h.key && monthOrders[h.key] && !(monthOrders[h.key] as any).__error && (
             <div style={{ padding: "10px 16px" }}>
-              {Object.values(dataEntries(monthOrders[h.key])).map((o: any) => (
+              {Object.values(dataEntries(monthOrders[h.key] as Record<string, Order>)).map((o: any) => (
                 <div key={o.email} style={{ borderBottom: `1px solid ${C.border}`, padding: "8px 0", fontSize: "0.82rem" }}>
                   <span style={{ fontWeight: 600 }}>{o.ordererName}</span>
                   <span style={{ color: C.muted, marginLeft: 8 }}>{o.email}</span>

@@ -1,18 +1,30 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { C } from "../../constants";
 import { dataEntries } from "../../utils/helpers";
-import { load, save } from "../../utils/storage";
+import { save, loadStrict } from "../../utils/storage";
 import { showToast } from "../../utils/toast";
 import { TextInput } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
+import { LoadError } from "./LoadState";
 import type { Customer } from "../../types";
 
 export function CustomersTab() {
   const [customers, setCustomers] = useState<Record<string, Customer> | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busyDelete, setBusyDelete] = useState(false);
-  useEffect(() => { load("customers").then(c => setCustomers(c || {})); }, []);
+
+  const fetchCustomers = useCallback(async () => {
+    setReloading(true);
+    const r = await loadStrict("customers");
+    if (r.ok) { setCustomers(r.data || {}); setLoadErr(null); }
+    else { setLoadErr(r.error); setCustomers(null); }
+    setReloading(false);
+  }, []);
+
+  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   const deleteCustomer = async (email: string) => {
     if (!customers) return;
@@ -26,6 +38,7 @@ export function CustomersTab() {
     showToast("已刪除", "success");
   };
 
+  if (loadErr) return <LoadError message={loadErr} onRetry={fetchCustomers} busy={reloading} />;
   if (!customers) return <div style={{ color: C.muted, padding: 20 }}>載入中…</div>;
   const list = Object.values(dataEntries(customers)).filter((c: any) => !search || (c.name + c.email + c.phone).includes(search)) as Customer[];
 

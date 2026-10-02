@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { C } from "../../constants";
 import { flatProducts, orderKey, dataEntries } from "../../utils/helpers";
-import { load, save } from "../../utils/storage";
+import { load, save, loadStrict } from "../../utils/storage";
 import { ConfirmModal } from "../ConfirmModal";
+import { LoadError } from "./LoadState";
 import type { Settings, Category, Order } from "../../types";
 
 interface OrdersTabProps {
@@ -12,13 +13,21 @@ interface OrdersTabProps {
 
 export function OrdersTab({ settings, cats }: OrdersTabProps) {
   const [orders, setOrders] = useState<Record<string, Order> | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busyOp, setBusyOp] = useState<string | null>(null);
   const fp = useMemo(() => flatProducts(cats), [cats]);
-  useEffect(() => {
-    const key = orderKey(settings.year, settings.month);
-    load(key).then(o => setOrders(o || {}));
+
+  const fetchOrders = useCallback(async () => {
+    setReloading(true);
+    const r = await loadStrict(orderKey(settings.year, settings.month));
+    if (r.ok) { setOrders(r.data || {}); setLoadErr(null); }
+    else { setLoadErr(r.error); setOrders(null); }
+    setReloading(false);
   }, [settings]);
+
+  useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   const toggleStatus = async (email: string) => {
     if (busyOp || !orders) return;
@@ -51,6 +60,7 @@ export function OrdersTab({ settings, cats }: OrdersTabProps) {
     setConfirmDelete(null);
   };
 
+  if (loadErr) return <LoadError message={loadErr} onRetry={fetchOrders} busy={reloading} />;
   if (!orders) return <div style={{ color: C.muted, padding: 20 }}>載入中…</div>;
   const list = Object.values(dataEntries(orders)).sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) as Order[];
   const totalAmt = list.filter(o => o.status !== "handled").reduce((s, o) => s + o.total, 0);
@@ -80,11 +90,11 @@ export function OrdersTab({ settings, cats }: OrdersTabProps) {
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="serif" style={{ fontWeight: 700, color: C.green }}>NT${o.total.toLocaleString()}</span>
                 <button onClick={() => toggleStatus(o.email)} disabled={!!busyOp}
-                  style={{ background: busyOp === o.email ? "#aaa" : o.status === "handled" ? C.gl : C.gold, color: C.white, border: "none", borderRadius: 7, padding: "4px 10px", fontSize: "0.75rem", cursor: busyOp ? "not-allowed" : "pointer", opacity: busyOp && busyOp !== o.email ? .5 : 1 }}>
+                  style={{ background: busyOp === o.email ? "#8a8f99" : o.status === "handled" ? C.green : C.goldOn, color: C.white, border: "none", borderRadius: 7, padding: "6px 11px", fontSize: "0.75rem", cursor: busyOp ? "not-allowed" : "pointer", opacity: busyOp && busyOp !== o.email ? .5 : 1 }}>
                   {busyOp === o.email ? "處理中…" : o.status === "handled" ? "↩ 恢復" : "✅ 已處理"}
                 </button>
                 <button onClick={() => setConfirmDelete(o.email)} disabled={!!busyOp}
-                  style={{ background: "none", color: busyOp ? C.muted : C.red, border: `1px solid ${busyOp ? C.muted : C.red}`, borderRadius: 7, padding: "4px 10px", fontSize: "0.75rem", cursor: busyOp ? "not-allowed" : "pointer", opacity: busyOp ? .5 : 1 }}>
+                  style={{ background: "none", color: busyOp ? C.muted : C.redOn, border: `1px solid ${busyOp ? C.muted : C.redOn}`, borderRadius: 7, padding: "6px 11px", fontSize: "0.75rem", cursor: busyOp ? "not-allowed" : "pointer", opacity: busyOp ? .5 : 1 }}>
                   🗑 刪除
                 </button>
               </div>
