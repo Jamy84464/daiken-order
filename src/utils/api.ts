@@ -108,8 +108,10 @@ export async function submitOrder(
   mode: "create" | "update", email: string, sid: string, order: OrderInput,
   verifyDelayMs = 2000,
 ): Promise<SubmitResult> {
+  // 注意：參數名稱不能用 "sid" 或 "c" —— Apps Script 保留這兩個名稱，
+  // 帶了會被 Google 直接回 400，請求根本到不了 doPost。
   const r = await gasPost({
-    action: "submitOrder", mode, email, sid,
+    action: "submitOrder", mode, email, submissionId: sid,
     order: JSON.stringify(order),
     token: WRITE_TOKEN || "",
   });

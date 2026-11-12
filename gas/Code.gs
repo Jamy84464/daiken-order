@@ -216,7 +216,9 @@ function submitOrder(p) {
   var mode = p.mode === "update" ? "update" : "create";
   var email = normEmail(p.email);
   if (!isEmail(email)) return fail("invalid_email");
-  var sid = clean(p.sid, 64);
+  // 參數名稱不能用 sid / c（Apps Script 保留字，會被 Google 直接回 400）；
+  // 存進訂單資料時仍叫 sid，那是 JSON 內容，不受影響
+  var sid = clean(p.submissionId, 64);
 
   var input;
   try { input = JSON.parse(p.order || "{}"); } catch (e) { return fail("invalid_order"); }

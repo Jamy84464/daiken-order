@@ -90,7 +90,7 @@ function fakePost(params: Record<string, string>) {
     const fp: Record<string, any> = {};
     mockCats.forEach(c => c.products.forEach(pr => { fp[pr.id] = pr; }));
     const total = Object.entries(input.cart as Record<string, number>).reduce((acc, [id, n]) => acc + (fp[id]?.price || 0) * n, 0);
-    const order = { ...(orders[email] || { status: 'pending', createdAt: '2026/3/5 上午10:00:00', updatedAt: null }), ...input, email, total, sid: params.sid };
+    const order = { ...(orders[email] || { status: 'pending', createdAt: '2026/3/5 上午10:00:00', updatedAt: null }), ...input, email, total, sid: params.submissionId };
     orders[email] = order;
     gasStore[ORDERS_KEY] = JSON.stringify(orders);
     return reply({ success: true, order, emailSent: true });
@@ -719,6 +719,7 @@ describe('訂單送出', () => {
 
     const submits = postLog.filter(p => p.action === 'submitOrder');
     expect(submits).toHaveLength(1);
+    expect(submits[0].submissionId).toBeTruthy();
     // 前端不送金額，也不送整份訂單或訂購人資料庫
     expect(JSON.parse(submits[0].order).total).toBeUndefined();
     expect(postLog.some(p => p.action === 'adminSet')).toBe(false);
@@ -810,4 +811,38 @@ describe('後台寫入保護', () => {
     expect(stored['test@example.com'].status).toBe('handled');
     expect(stored['late@example.com'].ordererName).toBe('後來的客人');
   }, 15000);
+});
+
+
+// ── 22. Apps Script 保留參數 ────────────────────────────────────────────────
+// Apps Script 保留 "c" 與 "sid"：請求帶了這兩個參數，Google 會直接回 400，
+// 根本不會執行 doGet / doPost。曾因此造成「下單失敗、伺服器完全沒有紀錄」。
+
+describe('Apps Script 保留參數', () => {
+  test('下單與查詢的請求都不帶 c / sid 參數', async () => {
+    gasStore[ORDERS_KEY] = JSON.stringify({});
+    render(<App />);
+    fireEvent.click(screen.getAllByText('＋')[0]);
+    const emailInput = screen.getByPlaceholderText('請先輸入 Email');
+    fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
+    fireEvent.blur(emailInput);
+    await waitFor(() => {
+      expect(screen.getByText(/找到歷史紀錄/)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('送出訂單'));
+    await waitFor(() => {
+      expect(screen.getByText('訂單已送出')).toBeInTheDocument();
+    });
+
+    const RESERVED = ['c', 'sid'];
+    for (const params of postLog) {
+      for (const name of RESERVED) expect(params).not.toHaveProperty(name);
+    }
+    const getUrls = (global.fetch as jest.Mock).mock.calls
+      .filter(c => !(c[1] && c[1].method === 'POST'))
+      .map(c => new URLSearchParams(String(c[0]).split('?')[1] || ''));
+    for (const q of getUrls) {
+      for (const name of RESERVED) expect(q.has(name)).toBe(false);
+    }
+  });
 });
