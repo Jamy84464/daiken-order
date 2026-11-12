@@ -1,8 +1,7 @@
 import { useState, useMemo } from "react";
 import { C, T, S, R, E } from "../constants";
-import { flatProducts, orderKey, nowStr } from "../utils/helpers";
-import { load, save, loadFromGAS, verifySaved } from "../utils/storage";
-import { requestSendEmail, genConfirmEmail } from "../utils/email";
+import { flatProducts } from "../utils/helpers";
+import { getMyOrder, submitOrder, makeSid } from "../utils/api";
 import { showToast } from "../utils/toast";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Btn, Field, TextInput } from "./ui";
@@ -16,7 +15,7 @@ interface MyOrderViewProps {
   cats: Category[];
 }
 
-export function MyOrderView({ settings, cats }: MyOrderViewProps) {
+export function MyOrderView({ cats }: MyOrderViewProps) {
   const [email, setEmail] = useState("");
   const [order, setOrder] = useState<Order | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -33,11 +32,11 @@ export function MyOrderView({ settings, cats }: MyOrderViewProps) {
   const lookup = async () => {
     if (!email.trim()) { return; }
     setLoading(true); setNotFound(false); setOrder(null); setSaved(false);
-    const key = orderKey(settings.year, settings.month);
-    const orders = (await load(key)) || {};
-    const found = orders[email.toLowerCase().trim()];
+    // 只查這一個 Email 本月的訂單，不再下載整個月份的訂單
+    const r = await getMyOrder(email.toLowerCase().trim());
     setLoading(false);
-    if (found) { setOrder(found); } else { setNotFound(true); }
+    if (!r.ok) { showToast("查詢失敗，請檢查網路後再試一次。"); return; }
+    if (r.order) { setOrder(r.order); } else { setNotFound(true); }
   };
 
   const startEdit = () => {
@@ -50,45 +49,17 @@ export function MyOrderView({ settings, cats }: MyOrderViewProps) {
   const handleSave = async () => {
     if (!Object.values(cart).some(q => q > 0)) { showToast("購物車是空的！"); return; }
     setSaving(true);
-    try {
-      const key = orderKey(settings.year, settings.month);
-      const orders = (await loadFromGAS(key)) || {};
-      const oldOrder = orders[email.toLowerCase()];
-      const updated: Order = {
-        ...oldOrder, ...form, cart,
-        total: Object.entries(cart).filter(([, q]) => q > 0).reduce((s, [id, q]) => s + (fp[id]?.price || 0) * q, 0),
-        updatedAt: nowStr(),
-      };
-      orders[email.toLowerCase()] = updated;
-      setSaveStatus("儲存中…");
-      await save(key, orders);
-      const savedV = orders._v;
-      setSaveStatus("驗證寫入中…");
-      const verified = await verifySaved(key, email.toLowerCase(), savedV);
-      if (!verified) {
-        alert("訂單儲存驗證失敗，請稍後再試一次。若問題持續，請聯絡我們。");
-        setSaving(false);
-        setSaveStatus("");
-        return;
-      }
-      const cartChanged = JSON.stringify(oldOrder?.cart) !== JSON.stringify(cart);
-      const infoChanged = oldOrder?.recipientName !== form.recipientName || oldOrder?.recipientAddress !== form.recipientAddress || oldOrder?.recipientPhone !== form.recipientPhone;
-      if (cartChanged || infoChanged) {
-        setSaveStatus("寄送確認信…");
-        await requestSendEmail({
-          to: email.toLowerCase(),
-          subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂單已更新 — ${updated.ordererName}`,
-          body: genConfirmEmail(updated, cats),
-          isHtml: true,
-        });
-      }
-      setSaving(false); setSaveStatus(""); setOrder(updated); setEditMode(false); setSaved(true);
-    } catch (err) {
-      console.warn("Save error:", err);
-      showToast("儲存時發生錯誤，請再試一次。");
-      setSaving(false);
-      setSaveStatus("");
-    }
+    setSaveStatus("儲存中…");
+    // 伺服器只允許修改收件資訊與購物車，並會檢查訂單是否已處理、是否已結單
+    const r = await submitOrder("update", email.toLowerCase().trim(), makeSid(), {
+      recipientName: form.recipientName, recipientAddress: form.recipientAddress, recipientPhone: form.recipientPhone,
+      cart,
+    });
+    setSaving(false);
+    setSaveStatus("");
+    if (r.status === "fail") { showToast(r.message); return; }
+    if (r.emailSent === false) showToast("訂單已更新，但確認信寄送失敗。");
+    setOrder(r.order); setEditMode(false); setSaved(true);
   };
 
   if (editMode) return (

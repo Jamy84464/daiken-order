@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { C, GAS_URL, WRITE_TOKEN } from "../../constants";
+import { C, GAS_URL } from "../../constants";
 import { save } from "../../utils/storage";
 import { Btn } from "../ui";
 import type { Category } from "../../types";
@@ -16,15 +16,10 @@ export function ProductsTab({ cats, setCats }: ProductsTabProps) {
 
   const exportToSheet = async () => {
     setExporting(true); setReloadMsg("");
-    try {
-      const params = new URLSearchParams();
-      params.append("action", "set");
-      params.append("key", "cats");
-      params.append("value", JSON.stringify(cats));
-      params.append("token", WRITE_TOKEN || "");
-      await fetch(GAS_URL || "", { method: "POST", mode: "no-cors", body: params });
-      setReloadMsg("✅ 已匯出到試算表！請到 Google Sheets 確認「產品目錄」工作表。");
-    } catch (e) { setReloadMsg("❌ 匯出失敗，請確認 Apps Script 已部署"); }
+    const r = await save("cats", cats);
+    if (r === "ok") setReloadMsg("✅ 已匯出到試算表！請到 Google Sheets 確認「產品目錄」工作表。");
+    else if (r === "fail") setReloadMsg("❌ 匯出失敗，請重新登入後台再試");
+    else setReloadMsg("⚠️ 無法確認是否匯出成功，請到 Google Sheets 查看「產品目錄」工作表。");
     setExporting(false);
   };
 

@@ -1,6 +1,7 @@
 import { useState, lazy, Suspense } from "react";
-import { C, GAS_URL } from "../constants";
+import { C, GAS_URL, DEFAULT_BANK } from "../constants";
 import { showToast } from "../utils/toast";
+import { setAdminCredential, loadStrict } from "../utils/storage";
 import { Btn, Field, TextInput } from "./ui";
 import type { Settings, Category } from "../types";
 
@@ -21,11 +22,16 @@ interface AdminViewProps {
   setCats: (cats: Category[]) => void;
 }
 
-export function AdminView({ settings, setSettings, cats, setCats }: AdminViewProps) {
+export function AdminView({ settings: publicSettings, setSettings: setPublicSettings, cats, setCats }: AdminViewProps) {
   const [authed, setAuthed] = useState(false);
+  // 完整設定（含銀行帳號）只有登入後才讀得到；後台一律用這份，
+  // 否則用公開設定存檔會把銀行帳號洗掉
+  const [settings, setFullSettings] = useState<Settings | null>(null);
   const [pw, setPw] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
   const [tab, setTab] = useState("orders");
+
+  const setSettings = (s: Settings) => { setFullSettings(s); setPublicSettings(s); };
 
   const login = async () => {
     if (!pw.trim()) return;
@@ -33,7 +39,17 @@ export function AdminView({ settings, setSettings, cats, setCats }: AdminViewPro
     try {
       const res = await fetch(`${GAS_URL}?action=verifyAdmin&pw=${encodeURIComponent(pw)}`);
       const json = await res.json();
-      if (json.success && json.authed) { setAuthed(true); }
+      if (json.error === "locked") { showToast("密碼錯誤次數過多，請 15 分鐘後再試"); }
+      else if (json.success && json.authed) {
+        setAdminCredential(pw);
+        const r = await loadStrict("settings");
+        if (!r.ok) { showToast(`登入成功，但讀取設定失敗：${r.error}`); setAdminCredential(""); }
+        else {
+          const full = r.data || publicSettings;
+          setFullSettings({ ...full, bank: { ...DEFAULT_BANK, ...(full.bank || {}) } });
+          setAuthed(true);
+        }
+      }
       else { showToast("密碼錯誤"); }
     } catch (e) {
       showToast("驗證失敗，請確認網路連線");
@@ -41,11 +57,12 @@ export function AdminView({ settings, setSettings, cats, setCats }: AdminViewPro
     setLoggingIn(false);
   };
 
-  if (!authed) return (
+  if (!authed || !settings) return (
     <div style={{ maxWidth: 340, margin: "40px auto" }}>
       <div style={{ background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 16, padding: 28, boxShadow: "0 4px 20px rgba(0,0,0,.07)" }}>
         <div className="serif" style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 20, textAlign: "center" }}>🔐 管理員登入</div>
-        <Field label="密碼" required><TextInput value={pw} onChange={setPw} type="password" placeholder="請輸入密碼" /></Field>
+        <Field label="密碼" required><TextInput value={pw} onChange={setPw} type="password" placeholder="請輸入密碼" autoComplete="current-password"
+          onKeyDown={e => { if (e.key === "Enter" && !loggingIn) login(); }} /></Field>
         <Btn onClick={login} disabled={loggingIn} full>{loggingIn ? "驗證中…" : "登入"}</Btn>
       </div>
     </div>

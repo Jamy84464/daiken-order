@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { C } from "../../constants";
 import { flatProducts, orderKey, dataEntries } from "../../utils/helpers";
-import { save, loadStrict } from "../../utils/storage";
+import { loadStrict, adminUpdateOrder, adminErrorMessage } from "../../utils/storage";
 import { showToast } from "../../utils/toast";
 import { ConfirmModal } from "../ConfirmModal";
 import { LoadError } from "./LoadState";
@@ -31,76 +31,49 @@ export function OrdersTab({ settings, cats }: OrdersTabProps) {
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
   /**
-   * 寫入前重新讀取遠端，只改動目標那一筆，再整份寫回。
+   * 改狀態與刪除都交給伺服器在鎖內完成，只動目標那一筆，回傳最新的整月訂單。
    *
-   * 原本的寫法是拿掛載當下的 orders state 整份覆蓋 —— 你早上開後台、
-   * 中午客人下單、下午按「已處理」，中午那筆就會被抹掉，
-   * 而且完全不需要網路故障就會發生。
-   *
-   * mutate 回傳 null 代表放棄寫入。
+   * 早期的寫法是拿掛載當下的 orders state 整份覆蓋 —— 早上開後台、中午客人下單、
+   * 下午按「已處理」，中午那筆就被抹掉。後來改成「先讀再寫」，但兩個請求之間
+   * 仍有空窗；現在讀改寫在同一把伺服器鎖裡，空窗不存在了。
    */
-  const mutateOrders = async (
-    email: string,
-    mutate: (fresh: Record<string, Order>) => Record<string, Order> | null,
-  ): Promise<Record<string, Order> | null> => {
+  const applyOrderOp = async (email: string, op: "status" | "delete", status?: "pending" | "handled") => {
     const key = orderKey(settings.year, settings.month);
-    const r = await loadStrict(key);
-    if (!r.ok) {
-      showToast(`讀取失敗（${r.error}），未更動任何資料，請稍後再試。`);
-      return null;
+    const known = orders ? Object.keys(dataEntries(orders)).length : 0;
+    const r = await adminUpdateOrder(key, email, op, status);
+    if (r.status === "unknown") {
+      showToast("無法確認是否完成，已重新讀取最新資料。");
+      await fetchOrders();
+      return;
     }
-    const fresh = (r.data || {}) as Record<string, Order>;
-    if (!fresh[email]) {
-      showToast("這筆訂單在雲端已不存在，畫面已更新。");
+    const value = r.data?.value;
+    const fresh = value ? (JSON.parse(value) as Record<string, Order>) : null;
+    if (r.status === "fail") {
+      showToast(adminErrorMessage(r.error));
+      if (fresh) setOrders(fresh);
+      return;
+    }
+    if (fresh) {
       setOrders(fresh);
-      return null;
+      // 讓保護被看見：期間有新訂單進來時明說
+      const after = Object.keys(dataEntries(fresh)).length + (op === "delete" ? 1 : 0);
+      if (after > known) showToast(`期間新增了 ${after - known} 筆訂單，已一併保留。`, "success");
     }
-    const before = Object.keys(dataEntries(fresh)).length;
-    const known = orders ? Object.keys(dataEntries(orders)).length : before;
-    const upd = mutate(fresh);
-    if (!upd) return null;
-    await save(key, upd);
-    setOrders(upd);
-    // 讓保護機制被看見：期間有新訂單進來時明說，否則使用者不會知道差點覆蓋掉
-    if (before > known) showToast(`期間新增了 ${before - known} 筆訂單，已一併保留。`, "success");
-    return upd;
   };
 
   const toggleStatus = async (email: string) => {
-    if (busyOp) return;
+    if (busyOp || !orders?.[email]) return;
     setBusyOp(email);
-    await mutateOrders(email, fresh => ({
-      ...fresh,
-      [email]: { ...fresh[email], status: fresh[email].status === "handled" ? "pending" : "handled" },
-    }));
+    // 送出明確的目標狀態，而不是讓伺服器「切換」—— 按的是哪顆鈕就是哪個結果
+    await applyOrderOp(email, "status", orders[email].status === "handled" ? "pending" : "handled");
     setBusyOp(null);
   };
 
   const deleteOrder = async (email: string) => {
     if (busyOp) return;
     setBusyOp(email);
-    const upd = await mutateOrders(email, fresh => {
-      const next = { ...fresh };
-      delete next[email];
-      return next;
-    });
-    if (upd) {
-      // 歷史紀錄的筆數／金額要跟著更新；這裡同樣先讀再改，讀不到就跳過不寫
-      const r = await loadStrict("history");
-      if (r.ok && Array.isArray(r.data)) {
-        const h = r.data;
-        const monthKey = `${settings.year}_${String(settings.month).padStart(2, "0")}`;
-        const idx = h.findIndex((x: any) => x.key === monthKey);
-        if (idx >= 0) {
-          const list = Object.values(dataEntries(upd)) as Order[];
-          h[idx].orderCount = list.length;
-          h[idx].totalAmt = list.reduce((s: number, o) => s + o.total, 0);
-          await save("history", h);
-        }
-      } else if (!r.ok) {
-        console.warn("update history after delete skipped:", r.error);
-      }
-    }
+    // 伺服器刪除時會一併更新該月歷史紀錄的筆數與金額
+    await applyOrderOp(email, "delete");
     setBusyOp(null);
     setConfirmDelete(null);
   };

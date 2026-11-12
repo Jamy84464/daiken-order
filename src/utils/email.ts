@@ -1,23 +1,25 @@
-import { GAS_URL, WRITE_TOKEN } from "../constants";
 import { flatProducts } from "./helpers";
+import { gasPost, getAdminCredential } from "./storage";
 import type { Order, Category, BankInfo, Product } from "../types";
 
-// ── EMAIL（透過 Apps Script 用 Gmail 寄出）────────────────────────────────
+// ── EMAIL（後台寄信，需管理員密碼；客人的確認信改由伺服器在下單時寄出）────
+// 回傳 "sent" / "error"；讀不到伺服器回應時視為已送出，避免重按造成重複寄信
 export async function requestSendEmail({ to, subject, body, isHtml = false }: { to: string; subject: string; body: string; isHtml?: boolean }): Promise<string> {
-  try {
-    const params = new URLSearchParams();
-    params.append("action", "sendEmail");
-    params.append("to", to);
-    params.append("subject", subject);
-    params.append("body", body);
-    params.append("token", WRITE_TOKEN || "");
-    if (isHtml) params.append("isHtml", "true");
-    await fetch(GAS_URL || "", { method: "POST", mode: "no-cors", body: params });
-    return "sent";
-  } catch (e) {
-    console.error("requestSendEmail error:", e);
+  const params: Record<string, string> = { action: "adminSendEmail", to, subject, body, pw: getAdminCredential() };
+  if (isHtml) params.isHtml = "true";
+  const r = await gasPost(params);
+  if (r.status === "fail") {
+    console.error("requestSendEmail rejected:", r.error);
     return "error";
   }
+  return "sent";
+}
+
+// 訂單內容來自客人輸入，放進 HTML 前一律跳脫
+export function esc(v: unknown): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // 共用 email 外框
@@ -45,9 +47,9 @@ export function itemsTableHtml(items: [string, number][], fp: Record<string, Pro
     const p = fp[id]; if (!p) return "";
     if (showOOS && p.outOfStock) {
       oosItems.push(p.name);
-      return `<tr style="color:#9ca3af"><td style="padding:8px 12px;border-bottom:1px solid #f0ede8">${p.name}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:center">${q}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:right;text-decoration:line-through">NT$${(p.price * q).toLocaleString()}</td></tr>`;
+      return `<tr style="color:#9ca3af"><td style="padding:8px 12px;border-bottom:1px solid #f0ede8">${esc(p.name)}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:center">${q}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:right;text-decoration:line-through">NT$${(p.price * q).toLocaleString()}</td></tr>`;
     }
-    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #f0ede8">${p.name}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:center">${q}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:right;font-weight:600;color:#2d6a4f">NT$${(p.price * q).toLocaleString()}</td></tr>`;
+    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #f0ede8">${esc(p.name)}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:center">${q}</td><td style="padding:8px 12px;border-bottom:1px solid #f0ede8;text-align:right;font-weight:600;color:#2d6a4f">NT$${(p.price * q).toLocaleString()}</td></tr>`;
   }).filter(Boolean).join("");
 
   const table = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:12px 0">
@@ -64,7 +66,7 @@ export function genConfirmEmail(order: Order, cats: Category[]): string {
 
   const content = `
     <div style="font-size:15px;line-height:1.8;margin-bottom:16px">
-      <strong>${order.ordererName}</strong> 您好，感謝您的訂購！
+      <strong>${esc(order.ordererName)}</strong> 您好，感謝您的訂購！
     </div>
     ${table}
     <div style="background:#f0faf4;border-radius:10px;padding:14px 18px;margin:16px 0;text-align:right">
@@ -73,9 +75,9 @@ export function genConfirmEmail(order: Order, cats: Category[]): string {
     </div>
     <div style="background:#faf7f2;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px;line-height:2;color:#4a5568">
       <div style="font-weight:600;margin-bottom:4px;color:#1a1a1a">▸ 收件資訊</div>
-      收件人：${order.recipientName}<br>
-      電　話：${order.recipientPhone}<br>
-      地　址：${order.recipientAddress}
+      收件人：${esc(order.recipientName)}<br>
+      電　話：${esc(order.recipientPhone)}<br>
+      地　址：${esc(order.recipientAddress)}
     </div>
     <div style="font-size:13px;color:#6b7280;line-height:1.8;margin-top:16px">
       我們將於月底結單後與您聯繫確認付款。<br>如需修改訂單，請至 <a href="https://jamy84464.github.io/daiken-order/" style="color:#2d6a4f;font-weight:600">訂購頁面</a> 以此 Email 登入修改。<br><br>
@@ -99,7 +101,7 @@ export function genPaymentEmail(order: Order, bank: BankInfo, cats: Category[]):
 
   const content = `
     <div style="font-size:15px;line-height:1.8;margin-bottom:16px">
-      <strong>${order.ordererName}</strong> 您好，以下是您的訂單與匯款資訊：
+      <strong>${esc(order.ordererName)}</strong> 您好，以下是您的訂單與匯款資訊：
     </div>
     ${table}
     ${oosNote}
@@ -109,9 +111,9 @@ export function genPaymentEmail(order: Order, bank: BankInfo, cats: Category[]):
     </div>
     <div style="background:#faf7f2;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px;line-height:2;color:#4a5568">
       <div style="font-weight:600;margin-bottom:4px;color:#1a1a1a">▸ 收件資訊</div>
-      收件人：${order.recipientName}<br>
-      電　話：${order.recipientPhone}<br>
-      地　址：${order.recipientAddress}
+      收件人：${esc(order.recipientName)}<br>
+      電　話：${esc(order.recipientPhone)}<br>
+      地　址：${esc(order.recipientAddress)}
     </div>
     <div style="background:#fffbeb;border:1.5px solid #f6ad55;border-radius:10px;padding:16px 18px;margin:16px 0">
       <div style="font-weight:700;font-size:14px;color:#b7791f;margin-bottom:8px">▸ 匯款資訊</div>
@@ -133,9 +135,9 @@ export function genPaymentEmail(order: Order, bank: BankInfo, cats: Category[]):
 export function genNoticeEmail(name: string, noticeText: string): string {
   const content = `
     <div style="font-size:15px;line-height:1.8;margin-bottom:16px">
-      <strong>${name}</strong> 您好，
+      <strong>${esc(name)}</strong> 您好，
     </div>
-    <div style="font-size:14px;line-height:2;color:#1a1a1a;padding:16px 0;white-space:pre-wrap">${noticeText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+    <div style="font-size:14px;line-height:2;color:#1a1a1a;padding:16px 0;white-space:pre-wrap">${esc(noticeText)}</div>
     <div style="font-size:13px;color:#6b7280;line-height:1.8;margin-top:16px">
       如有疑問請與我聯繫，感謝您的支持！
     </div>`;

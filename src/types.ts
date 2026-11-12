@@ -10,7 +10,8 @@ export interface Settings {
   month: number;
   isOpen: boolean;
   bulletin: string;
-  bank: BankInfo;
+  // 公開設定不含銀行帳號；只有登入後台後讀到的完整設定才有
+  bank?: BankInfo;
 }
 
 export interface Product {
@@ -48,6 +49,8 @@ export interface Order {
   updatedAt: string | null;
   lineId?: string;
   note?: string;
+  // 送出識別碼：伺服器用來辨識重送，前端收不到回應時用來回讀確認
+  sid?: string;
 }
 
 export interface Customer {
