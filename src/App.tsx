@@ -1,9 +1,10 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { VERSION, C, T, S, R, TAP, globalCSS, DEFAULT_BULLETIN, DEFAULT_BANK, GAS_URL, INIT_CATS } from "./constants";
+import { VERSION, C, T, S, R, TAP, globalCSS, DEFAULT_BULLETIN, GAS_URL, INIT_CATS } from "./constants";
 import { load, save } from "./utils/storage";
+import { fetchPublicSettings } from "./utils/api";
 import { isValidEmail, orderKey, nowStr, dataEntries, flatProducts } from "./utils/helpers";
 import { emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail } from "./utils/email";
-import { _saveVersions, _pendingVerify, loadFromGAS, verifySaved } from "./utils/storage";
+import { _saveVersions, _pendingVerify } from "./utils/storage";
 import { Btn } from "./components/ui";
 import { Icon, type IconName } from "./components/Icon";
 import { EmailModal } from "./components/EmailModal";
@@ -20,7 +21,7 @@ function App() {
   const [view, setView] = useState("shop");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [cats, setCats] = useState<Category[] | null>(null);
-  const [successModal, setSuccessModal] = useState<Order | null>(null);
+  const [successModal, setSuccessModal] = useState<{ order: Order; emailSent: boolean | null } | null>(null);
   const [emailModal, setEmailModal] = useState<{ title: string; content: string } | null>(null);
 
   useEffect(() => {
@@ -38,13 +39,17 @@ function App() {
       // 平行載入 settings 和 cats，減少等待時間
       const [s, loadedCats] = await Promise.all([
         (async () => {
-          let s = await load("settings");
-          if (!s) {
-            const now = new Date();
-            s = { year: now.getFullYear(), month: now.getMonth() + 1, isOpen: true, bulletin: DEFAULT_BULLETIN, bank: DEFAULT_BANK };
-            await save("settings", s);
-          }
-          return s;
+          // 公開設定只有年月、是否開團、公告；讀不到就沿用快取，絕不在前端寫入預設值
+          try {
+            const pub = await fetchPublicSettings();
+            if (pub) return pub;
+          } catch (e) { console.warn("getPublicSettings failed, using cache"); }
+          try {
+            const cached = localStorage.getItem("settings");
+            if (cached) return JSON.parse(cached);
+          } catch {}
+          const now = new Date();
+          return { year: now.getFullYear(), month: now.getMonth() + 1, isOpen: false, bulletin: DEFAULT_BULLETIN };
         })(),
         (async () => {
           try {
@@ -52,8 +57,11 @@ function App() {
             const json = await res.json();
             if (json.success && json.value) return JSON.parse(json.value);
           } catch (e) { console.warn("getCats from sheet failed, using cache"); }
-          const savedCats = await load("cats");
-          return savedCats || INIT_CATS;
+          try {
+            const cached = localStorage.getItem("cats");
+            if (cached) return JSON.parse(cached);
+          } catch {}
+          return INIT_CATS;
         })(),
       ]);
 
@@ -64,8 +72,8 @@ function App() {
     })();
   }, []);
 
-  const handleOrderSuccess = (order: Order) => {
-    setSuccessModal(order);
+  const handleOrderSuccess = (order: Order, emailSent: boolean | null) => {
+    setSuccessModal({ order, emailSent });
   };
 
   if (!settings || !cats) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: C.muted }}>載入中…</div>;
@@ -88,20 +96,28 @@ function App() {
             </div>
             <h2 id="success-title" className="serif" style={{ margin: 0, fontSize: T.lg, fontWeight: 700, color: C.text }}>訂單已送出</h2>
             <p style={{ fontSize: T.base, color: C.sub, lineHeight: 1.7, margin: `${S[2]}px 0 ${S[5]}px` }}>
-              {successModal.ordererName}，感謝訂購
+              {successModal.order.ordererName}，感謝訂購
             </p>
 
             <div style={{ background: C.surface, borderRadius: R.md, padding: `${S[4]}px`, marginBottom: S[4], display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span style={{ fontSize: T.sm, color: C.text, fontWeight: 600 }}>合計</span>
-              <span className="serif" style={{ fontSize: T.lg, fontWeight: 700, color: C.green }}>NT${successModal.total.toLocaleString()}</span>
+              <span className="serif" style={{ fontSize: T.lg, fontWeight: 700, color: C.green }}>NT${successModal.order.total.toLocaleString()}</span>
             </div>
 
             <div style={{ display: "flex", gap: S[3], alignItems: "flex-start", background: "#fdf8e9", borderRadius: R.md, padding: `${S[3]}px ${S[4]}px`, marginBottom: S[5], textAlign: "left" }}>
               <Icon name="alert" size={17} color="#8a6914" strokeWidth={2} style={{ marginTop: 2 }} />
-              <div style={{ fontSize: T.sm, color: "#6b5310", lineHeight: 1.65 }}>
-                確認信已寄至 <strong style={{ color: "#4a3908", wordBreak: "break-all" }}>{successModal.email}</strong>。<br />
-                <strong style={{ color: "#4a3908" }}>收到確認信才算訂購成功</strong>，若未收到請查看垃圾信件匣或與我聯繫。
-              </div>
+              {/* 訂單已由伺服器確認寫入；這裡依伺服器回報的寄信結果顯示 */}
+              {successModal.emailSent === false ? (
+                <div style={{ fontSize: T.sm, color: "#6b5310", lineHeight: 1.65 }}>
+                  訂單已成功送出，但<strong style={{ color: "#4a3908" }}>確認信寄送失敗</strong>。<br />
+                  請截圖此畫面留存，並與我聯繫確認。
+                </div>
+              ) : (
+                <div style={{ fontSize: T.sm, color: "#6b5310", lineHeight: 1.65 }}>
+                  確認信已寄至 <strong style={{ color: "#4a3908", wordBreak: "break-all" }}>{successModal.order.email}</strong>。<br />
+                  <strong style={{ color: "#4a3908" }}>收到確認信才算訂購成功</strong>，若未收到請查看垃圾信件匣或與我聯繫。
+                </div>
+              )}
             </div>
 
             <Btn onClick={() => setSuccessModal(null)} color={C.green} full style={{ minHeight: 48, fontSize: T.md }}>完成</Btn>
@@ -199,4 +215,4 @@ export { AppWithBoundary as default };
 // ── TEST EXPORTS（僅供單元測試使用）────────────────────────────────────────────
 export { isValidEmail, orderKey, nowStr, dataEntries, flatProducts };
 export { emailWrap, itemsTableHtml, genConfirmEmail, genPaymentEmail, genNoticeEmail };
-export { save, load, loadFromGAS, verifySaved, _saveVersions, _pendingVerify };
+export { save, load, _saveVersions, _pendingVerify };

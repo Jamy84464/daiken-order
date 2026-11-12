@@ -1,9 +1,7 @@
 import { useState, useRef, useMemo } from "react";
 import { C, T, S, R, E, TAP } from "../constants";
-import { isValidEmail, flatProducts, orderKey, nowStr } from "../utils/helpers";
-import { load, save, loadFromGAS, verifySaved } from "../utils/storage";
-import { requestSendEmail, genConfirmEmail } from "../utils/email";
-import { showToast } from "../utils/toast";
+import { isValidEmail, flatProducts } from "../utils/helpers";
+import { lookupCustomer, submitOrder, makeSid } from "../utils/api";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { Btn, Field, TextInput, SelInput } from "./ui";
 import { Icon } from "./Icon";
@@ -13,10 +11,10 @@ import type { Settings, Category, Order, Cart } from "../types";
 interface ShopViewProps {
   settings: Settings;
   cats: Category[];
-  onOrderSuccess: (order: Order) => void;
+  onOrderSuccess: (order: Order, emailSent: boolean | null) => void;
 }
 
-export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
+export function ShopView({ cats, onOrderSuccess }: ShopViewProps) {
   const [tab, setTab] = useState("all");
   const [cart, setCart] = useState<Cart>({});
   const [form, setForm] = useState({ email: "", emailConfirm: "", ordererName: "", phone: "", relation: "", recipientName: "", recipientAddress: "", recipientPhone: "" });
@@ -43,8 +41,8 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
     const ek = form.email.trim().toLowerCase();
     if (!ek || !isValidEmail(ek)) { setEmailChecked(true); return; }
     setLookingUp(true);
-    const custs = (await load("customers")) || {};
-    const found = custs[ek];
+    // 只查這一個 Email 的資料，不再下載整個訂購人資料庫
+    const found = await lookupCustomer(ek);
     setLookingUp(false);
     setEmailChecked(true);
     if (found) {
@@ -93,66 +91,28 @@ export function ShopView({ settings, cats, onOrderSuccess }: ShopViewProps) {
   const submit = async () => {
     if (!validate()) { scrollToFirstError(); return; }
     setSubmitting(true);
-    try {
-      const key = orderKey(settings.year, settings.month);
-      const existing = (await loadFromGAS(key)) || {};
-      const ek = form.email.trim().toLowerCase();
-      const order: Order = {
-        ordererName: form.ordererName, email: ek, phone: form.phone,
-        relation: form.relation,
-        recipientName: form.recipientName, recipientAddress: form.recipientAddress, recipientPhone: form.recipientPhone,
-        cart, total,
-        status: "pending",
-        createdAt: nowStr(),
-        updatedAt: null,
-      };
-      existing[ek] = order;
-      setSubmitStatus("儲存訂單中…");
-      await save(key, existing);
-      const savedV = existing._v;
-      const custs = (await loadFromGAS("customers")) || {};
-      custs[ek] = {
-        name: form.ordererName,
-        email: ek,
-        phone: form.phone,
-        relation: form.relation,
-        lastRecipientName: form.recipientName,
-        lastRecipientAddress: form.recipientAddress,
-        lastRecipientPhone: form.recipientPhone,
-        lastOrder: `${settings.year}/${settings.month}`,
-        orderCount: (custs[ek]?.orderCount || 0) + 1,
-        firstOrderAt: custs[ek]?.firstOrderAt || nowStr(),
-      };
-      await save("customers", custs);
-      setSubmitStatus("驗證寫入中…");
-      const verified = await verifySaved(key, ek, savedV);
-      if (!verified) {
-        alert("訂單儲存驗證失敗，請稍後再試一次。若問題持續，請聯絡我們。");
-        setSubmitting(false);
-        setSubmitStatus("");
-        return;
-      }
-      setSubmitStatus("寄送確認信…");
-      const emailContent = genConfirmEmail(order, cats);
-      await requestSendEmail({
-        to: ek,
-        subject: `【大研生醫團購】${settings.year}年${settings.month}月 訂購確認 — ${form.ordererName}`,
-        body: emailContent,
-        isHtml: true,
-      });
-      setSubmitting(false);
-      setSubmitStatus("");
-      onOrderSuccess(order);
-      setCart({});
-      setForm({ email: "", emailConfirm: "", ordererName: "", phone: "", relation: "", recipientName: "", recipientAddress: "", recipientPhone: "" });
-      setEmailLookupDone(false);
-      setEmailChecked(false);
-    } catch (err) {
-      console.warn("Submit error:", err);
-      showToast("無法連線伺服器，您的表單資料已保留，請檢查網路後再試。");
-      setSubmitting(false);
+    setSubmitStatus("送出訂單中…");
+    setErrors(p => ({ ...p, cart: null }));
+    const ek = form.email.trim().toLowerCase();
+    // 計價、寫入、寄確認信都在伺服器完成；這裡送出的金額不會被採用
+    const r = await submitOrder("create", ek, makeSid(), {
+      ordererName: form.ordererName, phone: form.phone, relation: form.relation,
+      recipientName: form.recipientName, recipientAddress: form.recipientAddress, recipientPhone: form.recipientPhone,
+      cart,
+    });
+    setSubmitting(false);
+    setSubmitStatus("");
+    if (r.status === "fail") {
+      // 失敗時保留表單；錯誤顯示在送出鈕上方並捲過去
+      setErrors(p => ({ ...p, cart: r.message }));
+      scrollToFirstError();
       return;
     }
+    onOrderSuccess(r.order, r.emailSent);
+    setCart({});
+    setForm({ email: "", emailConfirm: "", ordererName: "", phone: "", relation: "", recipientName: "", recipientAddress: "", recipientPhone: "" });
+    setEmailLookupDone(false);
+    setEmailChecked(false);
   };
 
   const shown = tab === "all"

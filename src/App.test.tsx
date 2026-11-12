@@ -42,10 +42,85 @@ const mockCustomers = {
 
 // localStorage mock
 const localStorageData: Record<string, string | undefined> = {};
-// 模組層級：測試需要檢查實際 POST 出去的內容
-const savedData: Record<string, any> = {};
+
+// ── 模擬 GAS v2（權限分離）────────────────────────────────────────────────────
+// gasStore 是假的 app_data（key → JSON 字串）；postLog 記錄每個 POST，
+// 讓測試能檢查前端實際送出了什麼（例如：後台不再整份寫回訂單）。
+const ADMIN_PW = 'admin123';
+const gasStore: Record<string, string> = {};
+const postLog: Record<string, string>[] = [];
+const ORDERS_KEY = 'orders_2026_03';
+
+const reply = (body: any) => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+const readStore = (k: string) => (gasStore[k] ? JSON.parse(gasStore[k]) : null);
+
+function fakeGet(url: string) {
+  const q = new URLSearchParams(url.split('?')[1] || '');
+  const action = q.get('action');
+  if (action === 'getPublicSettings') {
+    const st = readStore('settings');
+    return reply({ success: true, value: st && { year: st.year, month: st.month, isOpen: st.isOpen, bulletin: st.bulletin } });
+  }
+  if (action === 'getCats') return reply({ success: true, value: JSON.stringify(mockCats) });
+  if (action === 'lookupCustomer') {
+    const c = (readStore('customers') || {})[q.get('email') || ''];
+    return reply({ success: true, value: c || null });
+  }
+  if (action === 'getMyOrder') {
+    const o = (readStore(ORDERS_KEY) || {})[q.get('email') || ''];
+    return reply({ success: true, value: o || null });
+  }
+  if (action === 'verifyAdmin') return reply({ success: true, authed: q.get('pw') === ADMIN_PW });
+  if (action === 'adminGet') {
+    if (q.get('pw') !== ADMIN_PW) return reply({ success: false, error: 'unauthorized' });
+    const v = gasStore[q.get('key') || ''];
+    return reply({ success: true, value: v ?? null });
+  }
+  return reply({ success: false, error: 'unknown_action' });
+}
+
+function fakePost(params: Record<string, string>) {
+  postLog.push(params);
+  const action = params.action;
+  if (action === 'submitOrder') {
+    const orders = readStore(ORDERS_KEY) || {};
+    const email = params.email;
+    const input = JSON.parse(params.order);
+    if (params.mode === 'create' && orders[email]) return reply({ success: false, error: 'exists' });
+    const fp: Record<string, any> = {};
+    mockCats.forEach(c => c.products.forEach(pr => { fp[pr.id] = pr; }));
+    const total = Object.entries(input.cart as Record<string, number>).reduce((acc, [id, n]) => acc + (fp[id]?.price || 0) * n, 0);
+    const order = { ...(orders[email] || { status: 'pending', createdAt: '2026/3/5 上午10:00:00', updatedAt: null }), ...input, email, total, sid: params.sid };
+    orders[email] = order;
+    gasStore[ORDERS_KEY] = JSON.stringify(orders);
+    return reply({ success: true, order, emailSent: true });
+  }
+  if (params.pw !== ADMIN_PW) return reply({ success: false, error: 'unauthorized' });
+  if (action === 'adminSet') { gasStore[params.key] = params.value; return reply({ success: true }); }
+  if (action === 'adminUpdateOrder') {
+    const orders = readStore(params.key) || {};
+    if (!orders[params.email]) return reply({ success: false, error: 'not_found', value: JSON.stringify(orders) });
+    if (params.op === 'delete') delete orders[params.email];
+    else orders[params.email] = { ...orders[params.email], status: params.status };
+    gasStore[params.key] = JSON.stringify(orders);
+    return reply({ success: true, value: gasStore[params.key] });
+  }
+  if (action === 'adminDeleteCustomer') {
+    const custs = readStore('customers') || {};
+    delete custs[params.email];
+    gasStore.customers = JSON.stringify(custs);
+    return reply({ success: true, value: gasStore.customers });
+  }
+  return reply({ success: true });
+}
+
 beforeEach(() => {
-  Object.keys(savedData).forEach(k => delete savedData[k]);
+  postLog.length = 0;
+  Object.keys(gasStore).forEach(k => delete gasStore[k]);
+  gasStore.settings = JSON.stringify(mockSettings);
+  gasStore.customers = JSON.stringify(mockCustomers);
+  gasStore[ORDERS_KEY] = JSON.stringify(mockOrders);
+
   Object.keys(localStorageData).forEach(k => delete localStorageData[k]);
   localStorageData.settings = JSON.stringify(mockSettings);
   localStorageData.cats = JSON.stringify(mockCats);
@@ -55,49 +130,11 @@ beforeEach(() => {
   jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(key => { delete localStorageData[key]; });
   jest.spyOn(Storage.prototype, 'clear').mockImplementation(() => { Object.keys(localStorageData).forEach(k => delete localStorageData[k]); });
 
-  // Mock fetch - default: return settings/cats from GAS
-  // Track saved data for verifySaved to read back
-  global.fetch = jest.fn((url, opts?: any) => {
-    if (typeof url === 'string') {
-      // POST requests (save, sendEmail)
-      if (opts && opts.method === 'POST') {
-        const body = opts.body;
-        if (body instanceof URLSearchParams) {
-          const action = body.get('action');
-          const key = body.get('key');
-          const value = body.get('value');
-          if (action === 'set' && key && value) {
-            savedData[key] = value;
-          }
-        }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
-      }
-      if (url.includes('action=get&key=settings')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockSettings) }) });
-      }
-      if (url.includes('action=get&key=customers')) {
-        if (savedData['customers']) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: savedData['customers'] }) });
-        }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCustomers) }) });
-      }
-      if (url.includes('action=get&key=orders_')) {
-        const match = url.match(/key=(orders_\d+_\d+)/);
-        const key = match ? match[1] : null;
-        if (key && savedData[key]) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: savedData[key] }) });
-        }
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockOrders) }) });
-      }
-      if (url.includes('action=getCats')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(mockCats) }) });
-      }
-      if (url.includes('action=verifyAdmin')) {
-        const authed = url.includes('pw=admin123');
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, authed }) });
-      }
+  global.fetch = jest.fn((url: any, opts?: any) => {
+    if (opts && opts.method === 'POST') {
+      return fakePost(Object.fromEntries((opts.body as URLSearchParams).entries()));
     }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+    return fakeGet(String(url));
   }) as jest.Mock;
 
   // Suppress console.warn/error in tests
@@ -648,56 +685,85 @@ describe('產品連結', () => {
 // ── 19. 成功送出訂單 ────────────────────────────────────────────────────────
 
 describe('訂單送出', () => {
-  test('成功送出顯示成功彈窗', async () => {
+  const fillKnownCustomerAndAddItem = async () => {
     render(<App />);
-
-    // 1. 加入商品
-    const plusButtons = screen.getAllByText('＋');
-    fireEvent.click(plusButtons[0]); // p1 x1
-
-    // 2. 模擬已知用戶的 Email
+    fireEvent.click(screen.getAllByText('＋')[0]); // p1 x1
     const emailInput = screen.getByPlaceholderText('請先輸入 Email');
     fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
     fireEvent.blur(emailInput);
-
-    // 等待歷史資料帶入
     await waitFor(() => {
       expect(screen.getByText(/找到歷史紀錄/)).toBeInTheDocument();
     });
+  };
 
-    // 3. 送出（verifySaved 需要等待 2 秒 delay）
+  test('成功送出顯示成功彈窗', async () => {
+    gasStore[ORDERS_KEY] = JSON.stringify({}); // 這位客人本月還沒下單
+    await fillKnownCustomerAndAddItem();
     fireEvent.click(screen.getByText('送出訂單'));
 
     await waitFor(() => {
       expect(screen.getByText('訂單已送出')).toBeInTheDocument();
-    }, { timeout: 15000 });
+    });
     expect(screen.getByText('完成')).toBeInTheDocument();
     expect(screen.getByText(/確認信已寄至/)).toBeInTheDocument();
     expect(screen.getByText(/收到確認信才算訂購成功/)).toBeInTheDocument();
-  }, 20000);
+  });
+
+  test('下單只走公開的 submitOrder，金額由伺服器計算', async () => {
+    gasStore[ORDERS_KEY] = JSON.stringify({});
+    await fillKnownCustomerAndAddItem();
+    fireEvent.click(screen.getByText('送出訂單'));
+    await waitFor(() => {
+      expect(screen.getByText('訂單已送出')).toBeInTheDocument();
+    });
+
+    const submits = postLog.filter(p => p.action === 'submitOrder');
+    expect(submits).toHaveLength(1);
+    // 前端不送金額，也不送整份訂單或訂購人資料庫
+    expect(JSON.parse(submits[0].order).total).toBeUndefined();
+    expect(postLog.some(p => p.action === 'adminSet')).toBe(false);
+    // 客人端完全不會用到管理員讀取
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]));
+    expect(urls.some(u => u.includes('action=adminGet'))).toBe(false);
+  });
+
+  test('同一個 Email 本月已有訂單時，提示去修改而不是覆蓋', async () => {
+    // mockOrders 裡 test@example.com 已經有一筆
+    await fillKnownCustomerAndAddItem();
+    fireEvent.click(screen.getByText('送出訂單'));
+    await waitFor(() => {
+      expect(screen.getByText(/本月已經有一筆訂單了/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('訂單已送出')).not.toBeInTheDocument();
+    // 原本那筆沒有被動到
+    expect(readStore(ORDERS_KEY)['test@example.com'].total).toBe(1850);
+  });
 });
 
 
 // ── 20. 後台讀取失敗狀態 ────────────────────────────────────────────────────
 
+const loginAsAdmin = async () => {
+  render(<App />);
+  fireEvent.click(screen.getByLabelText('後台'));
+  await waitFor(() => {
+    expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
+  });
+  fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: ADMIN_PW } });
+  fireEvent.click(screen.getByText('登入'));
+};
+
 describe('後台讀取失敗', () => {
   test('讀取失敗顯示錯誤狀態，而非誤報「本月尚無訂單」', async () => {
     const baseFetch = global.fetch as jest.Mock;
     global.fetch = jest.fn((url: any, opts: any) => {
-      if (typeof url === 'string' && url.includes('action=get&key=orders_')) {
+      if (typeof url === 'string' && url.includes('action=adminGet') && url.includes('key=orders_')) {
         return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) });
       }
       return baseFetch(url, opts);
     }) as jest.Mock;
 
-    render(<App />);
-    fireEvent.click(screen.getByLabelText('後台'));
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
-    });
-    fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: 'admin123' } });
-    fireEvent.click(screen.getByText('登入'));
-
+    await loginAsAdmin();
     await waitFor(() => {
       expect(screen.getByText('讀取失敗')).toBeInTheDocument();
     }, { timeout: 5000 });
@@ -710,53 +776,38 @@ describe('後台讀取失敗', () => {
 // ── 21. 後台寫入不得覆蓋期間新進的訂單 ──────────────────────────────────────
 
 describe('後台寫入保護', () => {
-  test('按「已處理」時，分頁掛載後才進來的訂單必須保留', async () => {
-    const KEY = 'orders_2026_03';
-    // 後台載入時只看得到 1 筆
-    let remoteOrders: Record<string, any> = { ...mockOrders };
-
-    const baseFetch = global.fetch as jest.Mock;
-    global.fetch = jest.fn((url: any, opts: any) => {
-      if (typeof url === 'string' && url.includes(`action=get&key=${KEY}`)) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, value: JSON.stringify(remoteOrders) }) });
-      }
-      return baseFetch(url, opts);
-    }) as jest.Mock;
-
-    render(<App />);
-    fireEvent.click(screen.getByLabelText('後台'));
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText('請輸入密碼')).toBeInTheDocument();
-    });
-    fireEvent.change(screen.getByPlaceholderText('請輸入密碼'), { target: { value: 'admin123' } });
-    fireEvent.click(screen.getByText('登入'));
+  test('按「已處理」只送出單筆操作，期間新進的訂單會保留並顯示', async () => {
+    await loginAsAdmin();
     await waitFor(() => {
       expect(screen.getByText('測試用戶')).toBeInTheDocument();
     });
 
-    // 後台已經載入後，前台有新客人下單 —— 這筆不在後台的 state 裡
-    remoteOrders = {
-      ...remoteOrders,
-      'late@example.com': {
-        ordererName: '後來的客人', email: 'late@example.com', phone: '0911222333',
-        relation: '朋友', recipientName: '後來的客人', recipientAddress: '台中市',
-        recipientPhone: '0911222333', cart: { p1: 1 }, total: 700,
-        status: 'pending', createdAt: '2026/3/2 09:00:00', updatedAt: null,
-      },
+    // 後台已經載入後，前台有新客人下單 —— 這筆不在後台畫面上
+    const orders = readStore(ORDERS_KEY);
+    orders['late@example.com'] = {
+      ordererName: '後來的客人', email: 'late@example.com', phone: '0911222333',
+      relation: '朋友', recipientName: '後來的客人', recipientAddress: '台中市',
+      recipientPhone: '0911222333', cart: { p1: 1 }, total: 700,
+      status: 'pending', createdAt: '2026/3/2 09:00:00', updatedAt: null,
     };
+    gasStore[ORDERS_KEY] = JSON.stringify(orders);
+    expect(screen.queryByText('後來的客人')).not.toBeInTheDocument();
 
     // 「✅ 已處理」同時是統計卡標籤與按鈕，要指定 button
     fireEvent.click(screen.getByRole('button', { name: '✅ 已處理' }));
 
     await waitFor(() => {
-      expect(savedData[KEY]).toBeTruthy();
+      expect(screen.getByText('後來的客人')).toBeInTheDocument();
     }, { timeout: 5000 });
 
-    const written = JSON.parse(savedData[KEY]);
-    // 目標那筆確實被標記為已處理
-    expect(written['test@example.com'].status).toBe('handled');
-    // 關鍵：期間新進的訂單沒有被覆蓋掉
-    expect(written['late@example.com']).toBeTruthy();
-    expect(written['late@example.com'].ordererName).toBe('後來的客人');
+    // 送出的是「這一筆改成已處理」，而不是整份訂單
+    const ops = postLog.filter(p => p.action === 'adminUpdateOrder');
+    expect(ops).toHaveLength(1);
+    expect(ops[0]).toMatchObject({ key: ORDERS_KEY, email: 'test@example.com', op: 'status', status: 'handled' });
+    expect(postLog.some(p => p.action === 'adminSet' && p.key === ORDERS_KEY)).toBe(false);
+
+    const stored = readStore(ORDERS_KEY);
+    expect(stored['test@example.com'].status).toBe('handled');
+    expect(stored['late@example.com'].ordererName).toBe('後來的客人');
   }, 15000);
 });

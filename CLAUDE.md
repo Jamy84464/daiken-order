@@ -131,10 +131,16 @@ daiken-order/
 瀏覽器 localStorage ←→ React State ←→ Google Apps Script ←→ Google Sheets
 ```
 
-- **讀取：** 優先使用 localStorage 快取，背景同步 GAS
-- **寫入：** 更新 localStorage 後呼叫 GAS，4 秒後回讀驗證
-- **版本控制：** 使用樂觀鎖定 (`_v` 欄位) 避免衝突
-- **離線容錯：** GAS 不可用時使用 localStorage 降級
+GAS 原始碼在 `gas/Code.gs`（需手動貼到 Apps Script 並部署新版本）。權限分兩層：
+
+- **公開（客人端，`utils/api.ts`）：** 只能讀公開設定（不含銀行帳號）、讀產品、
+  用 Email 查「自己」的訂單與上次資料、透過 `submitOrder` 新增或修改自己的訂單。
+  計價、寫入、寄確認信都在伺服器端完成，前端送的金額不被採用。
+- **管理員（後台，`utils/storage.ts`）：** 登入後密碼只存在記憶體，所有讀寫帶密碼驗證。
+  改訂單狀態與刪除走 `adminUpdateOrder`／`adminDeleteCustomer`，在伺服器鎖內只動單一筆。
+- **機密：** `WRITE_TOKEN`、`ADMIN_PW` 放在 Apps Script 的「指令碼屬性」，不在程式碼裡。
+  `WRITE_TOKEN` 必須與 GitHub Secret `REACT_APP_WRITE_TOKEN` 相同。
+- **版本控制：** 後台整份寫入仍使用樂觀鎖定 (`_v` 欄位)；所有寫入在 GAS 端以 `LockService` 排隊。
 
 ### localStorage Keys
 
@@ -198,8 +204,8 @@ const C = {
 
 ## 注意事項
 
-- GAS API 使用 no-cors 模式以避免重新導向錯誤
-- 寫入操作後有 4 秒延遲回讀驗證
+- POST 以一般模式送出並讀取回應；讀不到回應時視為「未確認」，下單會用 `sid` 回讀確認，絕不自動重送
+- 修改 `gas/Code.gs` 後要到 Apps Script「部署 → 管理部署作業」部署新版本，網站才會用到新程式
 - 產品類別包含：魚油、維他命、心血管、眼睛、消化、活力、美容、關節、睡眠
 - 響應式斷點為 768px
 - 動畫效果：fadeUp、pop (定義於 index.css)

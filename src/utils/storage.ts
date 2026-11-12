@@ -1,6 +1,59 @@
-import { GAS_URL, WRITE_TOKEN, VERSION } from "../constants";
+import { GAS_URL, VERSION } from "../constants";
 import { nowStr, orderKey, dataEntries } from "./helpers";
 import type { BackupMeta, HistoryEntry } from "../types";
+
+/**
+ * 儲存層（管理員專用）
+ *
+ * GAS v2 起，讀寫任意資料都需要管理員密碼；客人端改走 utils/api.ts 的公開動作
+ * （查自己的訂單、下單），不再經過這裡。登入後台時用 setAdminCredential 設定密碼，
+ * 只存在記憶體裡，重新整理頁面就會清除。
+ */
+let _adminPw = "";
+export function setAdminCredential(pw: string): void { _adminPw = pw; }
+export function getAdminCredential(): string { return _adminPw; }
+
+// ── POST 共用 ────────────────────────────────────────────────────────────────
+// 原本用 no-cors 送 POST，回應完全讀不到，寫入失敗也無從得知。
+// GAS 的回應其實允許跨域讀取（表單格式的 POST 屬於 simple request，不會觸發 preflight），
+// 所以改成正常模式讀回結果；萬一瀏覽器仍讀不到（網路中斷、跨域失敗），
+// 回報 unknown —— 請求可能已經執行，由呼叫端決定要不要回讀確認，絕不能自動重送。
+export type PostResult =
+  | { status: "ok"; data: any }
+  | { status: "fail"; error: string; data?: any }
+  | { status: "unknown"; error: string };
+
+export async function gasPost(params: Record<string, string>): Promise<PostResult> {
+  let res: Response;
+  try {
+    res = await fetch(GAS_URL || "", { method: "POST", body: new URLSearchParams(params) });
+  } catch {
+    return { status: "unknown", error: "無法確認伺服器回應" };
+  }
+  try {
+    const json = await res.json();
+    if (json && json.success) return { status: "ok", data: json };
+    return { status: "fail", error: (json && json.error) || "伺服器拒絕", data: json };
+  } catch {
+    return { status: "unknown", error: "伺服器回應無法解析" };
+  }
+}
+
+// 把 GAS 的錯誤代碼轉成後台看得懂的訊息
+export function adminErrorMessage(code: string): string {
+  if (code === "unauthorized") return "管理員驗證失敗，請重新整理後再登入";
+  if (code === "locked") return "密碼錯誤次數過多，請 15 分鐘後再試";
+  if (code === "busy") return "伺服器忙碌中，請稍後再試";
+  if (code === "version_conflict") return "資料已被其他操作更新，請重新整理後再試";
+  if (code === "not_found") return "找不到這筆資料，畫面已更新";
+  return code;
+}
+
+function adminGetUrl(key: string, sheet?: string): string {
+  let url = `${GAS_URL}?action=adminGet&key=${encodeURIComponent(key)}&pw=${encodeURIComponent(_adminPw)}`;
+  if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
+  return url;
+}
 
 // ── 同步狀態通知（供 SyncStatus 元件使用）──────────────────────────────────
 type SyncCallback = (key: string) => void;
@@ -30,9 +83,7 @@ function _cancelAllPendingVerify(): void {
 
 export async function load(key: string, sheet?: string): Promise<any> {
   try {
-    let url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
-    if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
-    const res = await fetch(url);
+    const res = await fetch(adminGetUrl(key, sheet));
     const json = await res.json();
     if (json.success && json.value) {
       const parsed = JSON.parse(json.value);
@@ -53,37 +104,20 @@ export async function load(key: string, sheet?: string): Promise<any> {
   }
 }
 
-export async function loadFromGAS(key: string): Promise<any> {
-  const url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
-  const res = await fetch(url);
-  const json = await res.json();
-  if (json.success && json.value) {
-    const parsed = JSON.parse(json.value);
-    if (parsed && parsed._v) _loadedVersions[key] = parsed._v;
-    return parsed;
-  }
-  return null;
-}
-
 /**
  * 給後台讀取用：把「真的沒資料」和「讀取失敗」分開回報。
  *
  * load() 會吞掉錯誤並回退 localStorage，失敗時回傳 null，所以後台分頁
  * 無法分辨「本月尚無訂單」和「讀不到」—— GAS 掛掉時會顯示成「尚無訂單」。
- *
- * 這是新增的函式，不改動 load() 與 loadFromGAS() 的既有行為，
- * 因此送出訂單的流程完全不受影響。
  */
 export type LoadResult = { ok: true; data: any | null } | { ok: false; error: string };
 
 export async function loadStrict(key: string, sheet?: string): Promise<LoadResult> {
-  let url = `${GAS_URL}?action=get&key=${encodeURIComponent(key)}`;
-  if (sheet) url += `&sheet=${encodeURIComponent(sheet)}`;
   try {
-    const res = await fetch(url);
+    const res = await fetch(adminGetUrl(key, sheet));
     if (!res.ok) return { ok: false, error: `伺服器回應 ${res.status}` };
     const json = await res.json();
-    if (!json.success) return { ok: false, error: json.error || "伺服器回報讀取失敗" };
+    if (!json.success) return { ok: false, error: adminErrorMessage(json.error || "伺服器回報讀取失敗") };
     // success 為 true 但沒有 value：GAS 明確告訴我們這個 key 沒有資料
     if (!json.value) return { ok: true, data: null };
     const parsed = JSON.parse(json.value);
@@ -94,18 +128,9 @@ export async function loadStrict(key: string, sheet?: string): Promise<LoadResul
   }
 }
 
-export async function verifySaved(key: string, identifier: string, expectedV: number, retries = 2, delay = 2000): Promise<boolean> {
-  for (let i = 0; i <= retries; i++) {
-    await new Promise(r => setTimeout(r, delay));
-    try {
-      const remote = await loadFromGAS(key);
-      if (remote && remote[identifier] && remote._v >= expectedV) return true;
-    } catch (e) { /* 繼續重試 */ }
-  }
-  return false;
-}
+export type SaveStatus = "ok" | "fail" | "unknown";
 
-export async function save(key: string, val: any, sheet?: string): Promise<void> {
+export async function save(key: string, val: any, sheet?: string): Promise<SaveStatus> {
   // 對訂單和顧客資料加入版本號（Optimistic Locking）
   const needsVersion = !sheet && (key.startsWith("orders_") || key === "customers");
   if (needsVersion && val && typeof val === "object") {
@@ -117,27 +142,26 @@ export async function save(key: string, val: any, sheet?: string): Promise<void>
   _saveVersions[key] = version;
   // 同步寫入 localStorage 當快取（讓 UI 立即反應）
   try { const cacheKey = sheet ? `${sheet}::${key}` : key; localStorage.setItem(cacheKey, jsonStr); } catch {}
-  // 寫入 Google Sheets（no-cors 避免 redirect 把 POST 變 GET）
-  try {
-    const params = new URLSearchParams();
-    params.append("action", "set");
-    params.append("key", key);
-    params.append("value", jsonStr);
-    params.append("token", WRITE_TOKEN || "");
-    if (sheet) params.append("sheet", sheet);
-    if (needsVersion && !_skipVerify) {
-      params.append("baseV", String(_loadedVersions[key] || "0"));
-    }
-    await fetch(GAS_URL || "", { method: "POST", mode: "no-cors", body: params });
-  } catch (e) { console.error("save to Sheets error:", key, e); }
 
-  // 更新本地版本記錄
-  if (needsVersion && val && val._v) {
-    _loadedVersions[key] = val._v;
+  const params: Record<string, string> = { action: "adminSet", key, value: jsonStr, pw: _adminPw };
+  if (sheet) params.sheet = sheet;
+  if (needsVersion && !_skipVerify) params.baseV = String(_loadedVersions[key] || "0");
+  const r = await gasPost(params);
+
+  if (r.status === "ok") {
+    if (needsVersion && val && val._v) _loadedVersions[key] = val._v;
+    return "ok";
+  }
+  if (r.status === "fail") {
+    // 伺服器明確拒絕（版本衝突、驗證失敗…）：立刻提示，不用等回讀
+    console.warn(`save rejected for "${key}":`, r.error);
+    _notifySyncWarning(key);
+    return "fail";
   }
 
-  // Read-back 驗證（取消前次同 key 的驗證，避免 race condition）
-  if (_skipVerify) return;
+  // 讀不到回應：可能寫進去了也可能沒有，4 秒後回讀確認（取消前次同 key 的驗證，避免 race condition）
+  if (needsVersion && val && val._v) _loadedVersions[key] = val._v;
+  if (_skipVerify) return "unknown";
   if (_pendingVerify[key]) clearTimeout(_pendingVerify[key]);
   _pendingVerify[key] = setTimeout(async () => {
     delete _pendingVerify[key];
@@ -156,6 +180,20 @@ export async function save(key: string, val: any, sheet?: string): Promise<void>
       }
     } catch (e) { /* 驗證本身失敗，不處理 */ }
   }, 4000);
+  return "unknown";
+}
+
+// ── 管理員專用的單筆操作（伺服器端加鎖完成，不再由瀏覽器寫回整份）────────
+export async function adminUpdateOrder(
+  key: string, email: string, op: "status" | "delete", status?: "pending" | "handled",
+): Promise<PostResult> {
+  const params: Record<string, string> = { action: "adminUpdateOrder", key, email, op, pw: _adminPw };
+  if (status) params.status = status;
+  return gasPost(params);
+}
+
+export async function adminDeleteCustomer(email: string): Promise<PostResult> {
+  return gasPost({ action: "adminDeleteCustomer", email, pw: _adminPw });
 }
 
 // ── BACKUP（備份與回復）──────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { C } from "../../constants";
 import { dataEntries } from "../../utils/helpers";
-import { save, loadStrict } from "../../utils/storage";
+import { loadStrict, adminDeleteCustomer, adminErrorMessage } from "../../utils/storage";
 import { showToast } from "../../utils/toast";
 import { TextInput } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
@@ -28,32 +28,21 @@ export function CustomersTab() {
 
   const deleteCustomer = async (email: string) => {
     setBusyDelete(true);
-    // 寫入前重新讀：原本拿掛載當下的 state 整份覆蓋，
-    // 期間由前台新註冊的訂購人會被一併抹掉。
-    const r = await loadStrict("customers");
-    if (!r.ok) {
-      showToast(`讀取失敗（${r.error}），未刪除任何資料，請稍後再試。`);
-      setBusyDelete(false);
-      setConfirmDelete(null);
-      return;
-    }
-    const fresh = (r.data || {}) as Record<string, Customer>;
     const known = customers ? Object.keys(dataEntries(customers)).length : 0;
-    const before = Object.keys(dataEntries(fresh)).length;
-    if (!fresh[email]) {
-      showToast("這位訂購人在雲端已不存在，畫面已更新。");
-      setCustomers(fresh);
-      setBusyDelete(false);
-      setConfirmDelete(null);
+    // 由伺服器在鎖內刪除單一筆，期間由前台新註冊的訂購人不會被影響
+    const r = await adminDeleteCustomer(email);
+    setBusyDelete(false);
+    setConfirmDelete(null);
+    if (r.status === "unknown") {
+      showToast("無法確認是否刪除，已重新讀取最新資料。");
+      await fetchCustomers();
       return;
     }
-    const updated = { ...fresh };
-    delete updated[email];
-    await save("customers", updated);
-    setCustomers(updated);
-    setConfirmDelete(null);
-    setBusyDelete(false);
-    showToast(before > known ? `已刪除；期間新增的 ${before - known} 位訂購人已保留。` : "已刪除", "success");
+    const fresh = r.data?.value ? (JSON.parse(r.data.value) as Record<string, Customer>) : null;
+    if (fresh) setCustomers(fresh);
+    if (r.status === "fail") { showToast(adminErrorMessage(r.error)); return; }
+    const after = fresh ? Object.keys(dataEntries(fresh)).length + 1 : known;
+    showToast(after > known ? `已刪除；期間新增的 ${after - known} 位訂購人已保留。` : "已刪除", "success");
   };
 
   if (loadErr) return <LoadError message={loadErr} onRetry={fetchCustomers} busy={reloading} />;

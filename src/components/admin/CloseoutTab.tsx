@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { C, GAS_URL, WRITE_TOKEN } from "../../constants";
+import { C } from "../../constants";
 import { flatProducts, orderKey, nowStr, dataEntries } from "../../utils/helpers";
-import { save, createBackup, loadStrict } from "../../utils/storage";
+import { save, createBackup, loadStrict, gasPost, getAdminCredential, adminErrorMessage } from "../../utils/storage";
 import { showToast } from "../../utils/toast";
 import { Btn } from "../ui";
 import { ConfirmModal } from "../ConfirmModal";
@@ -89,19 +89,13 @@ export function CloseoutTab({ settings, setSettings, cats }: CloseoutTabProps) {
 
   const exportToSheet = async () => {
     setExporting(true); setExportMsg("");
-    try {
-      const rows = genCloseoutRows();
-      const sheetName = `結單表_${settings.year}_${String(settings.month).padStart(2, "0")}`;
-      const params = new URLSearchParams();
-      params.append("action", "syncCloseout");
-      params.append("sheetName", sheetName);
-      params.append("value", JSON.stringify(rows));
-      params.append("token", WRITE_TOKEN || "");
-      await fetch(GAS_URL || "", { method: "POST", mode: "no-cors", body: params });
-      setExportMsg(`✅ 已匯出到「${sheetName}」工作表！請到 Google Sheets 確認。`);
-    } catch (e) {
-      setExportMsg("❌ 匯出失敗，請確認 Apps Script 已部署");
-    }
+    const rows = genCloseoutRows();
+    const sheetName = `結單表_${settings.year}_${String(settings.month).padStart(2, "0")}`;
+    // 現在讀得到伺服器回應：成功才顯示成功，不再無條件顯示 ✅
+    const r = await gasPost({ action: "syncCloseout", sheetName, value: JSON.stringify(rows), pw: getAdminCredential() });
+    if (r.status === "ok") setExportMsg(`✅ 已匯出到「${sheetName}」工作表！請到 Google Sheets 確認。`);
+    else if (r.status === "fail") setExportMsg(`❌ 匯出失敗：${adminErrorMessage(r.error)}`);
+    else setExportMsg(`⚠️ 無法確認是否匯出成功，請到 Google Sheets 查看「${sheetName}」。`);
     setExporting(false);
   };
 
