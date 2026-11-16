@@ -846,3 +846,37 @@ describe('Apps Script 保留參數', () => {
     }
   });
 });
+
+
+// ── 23. 伺服器端防護的錯誤訊息 ──────────────────────────────────────────────
+
+describe('伺服器端防護的錯誤訊息', () => {
+  test.each([
+    ['rate_limited', /下單人數較多/],
+    ['invalid_text', /不能包含網址/],
+    ['invalid_phone', /電話格式不正確/],
+  ])('伺服器回報 %s 時顯示中文說明，且保留表單', async (code, message) => {
+    gasStore[ORDERS_KEY] = JSON.stringify({});
+    const baseFetch = global.fetch as jest.Mock;
+    global.fetch = jest.fn((url: any, opts: any) => {
+      if (opts && opts.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: false, error: code }) });
+      return baseFetch(url, opts);
+    }) as jest.Mock;
+
+    render(<App />);
+    fireEvent.click(screen.getAllByText('＋')[0]);
+    const emailInput = screen.getByPlaceholderText('請先輸入 Email');
+    fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
+    fireEvent.blur(emailInput);
+    await waitFor(() => {
+      expect(screen.getByText(/找到歷史紀錄/)).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('送出訂單'));
+
+    await waitFor(() => {
+      expect(screen.getByText(message)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('訂單已送出')).not.toBeInTheDocument();
+    expect((screen.getByPlaceholderText('請先輸入 Email') as HTMLInputElement).value).toBe('test@example.com');
+  });
+});
